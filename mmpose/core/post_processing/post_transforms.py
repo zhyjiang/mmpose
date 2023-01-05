@@ -146,6 +146,38 @@ def flip_back(output_flipped, flip_pairs, target_type='GaussianHeatmap'):
     output_flipped_back = output_flipped_back[..., ::-1]
     return output_flipped_back
 
+def flip_score_back(output_flipped_score, output_flipped_cls_score, flip_pairs):
+    """Flip the flipped heatmaps back to the original form.
+
+    Note:
+        - batch_size: N
+        - num_keypoints: K
+
+    Args:
+        output_score (np.ndarray[N, K]): The output confidence score obtained
+            from the flipped images.
+        output_cls_score (np.ndarray[N, K]): The output visualization classification
+            score obtained from the flipped images.
+        flip_pairs (list[tuple()): Pairs of keypoints which are mirrored
+            (for example, left ear -- right ear).
+
+    Returns:
+        np.ndarray: confidence score that flipped back to the original image
+        np.ndarray: output visualization classification score that flipped 
+            back to the original image
+    """
+    output_score = output_flipped_score.copy()
+    output_cls_score = output_flipped_cls_score.copy()
+    
+    # Swap left-right parts
+    for left, right in flip_pairs:
+        output_score[:, left] = output_flipped_score[:, right]
+        output_score[:, right] = output_flipped_score[:, left]
+        output_cls_score[:, left] = output_flipped_cls_score[:, right]
+        output_cls_score[:, right] = output_flipped_cls_score[:, left]
+    
+    return output_score, output_cls_score
+    
 
 def transform_preds(coords, center, scale, output_size, use_udp=False):
     """Get final keypoint predictions from heatmaps and apply scaling and

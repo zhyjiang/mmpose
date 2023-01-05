@@ -32,26 +32,57 @@ channel_cfg = dict(
 
 # model settings
 model = dict(
-    type='PoseLifter',
-    pretrained=None,
+    type='TopDown3D',
+    pretrained='https://download.openmmlab.com/mmpose/'
+    'pretrain_models/hrnet_w32-36af842e.pth',
     backbone=dict(
-        type='TCN',
-        in_channels=2 * 17,
-        stem_channels=1024,
-        num_blocks=2,
-        kernel_sizes=(1, 1, 1),
-        dropout=0.5),
+        type='HRNet',
+        in_channels=3,
+        extra=dict(
+            stage1=dict(
+                num_modules=1,
+                num_branches=1,
+                block='BOTTLENECK',
+                num_blocks=(4, ),
+                num_channels=(64, )),
+            stage2=dict(
+                num_modules=1,
+                num_branches=2,
+                block='BASIC',
+                num_blocks=(4, 4),
+                num_channels=(32, 64)),
+            stage3=dict(
+                num_modules=4,
+                num_branches=3,
+                block='BASIC',
+                num_blocks=(4, 4, 4),
+                num_channels=(32, 64, 128)),
+            stage4=dict(
+                num_modules=3,
+                num_branches=4,
+                block='BASIC',
+                num_blocks=(4, 4, 4, 4),
+                num_channels=(32, 64, 128, 256))),
+    ),
     keypoint_head=dict(
-        type='TemporalRegressionHead',
-        in_channels=1024,
-        num_joints=16,  # do not predict root joint
-        loss_keypoint=dict(type='MSELoss')),
+        type='TopdownHeatmapSimpleHead',
+        in_channels=32,
+        out_channels=channel_cfg['num_output_channels'],
+        num_deconv_layers=0,
+        extra=dict(final_conv_kernel=1, ),
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True)),
     train_cfg=dict(),
-    test_cfg=dict(restore_global_position=True))
+    test_cfg=dict(
+        flip_test=True,
+        post_process='default',
+        shift_heatmap=True,
+        modulate_kernel=11))
 
 # data settings
 data_root = 'data/h36m'
 data_cfg = dict(
+    image_size=[256, 256],
+    heatmap_size=[64, 64],
     num_joints=17,
     seq_len=1,
     seq_frame_interval=1,
@@ -120,31 +151,42 @@ joint_2d_normalize_param = dict(
          [131.79990652, 89.86721124]])
 
 train_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownRandomShiftBboxCenter', shift_factor=0.16, prob=0.3),
+    dict(type='TopDownRandomFlip', flip_prob=0.5),
+    dict(
+        type='TopDownHalfBodyTransform',
+        num_joints_half_body=8,
+        prob_half_body=0.3),
+    dict(
+        type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
+    dict(type='TopDownAffine'),
+    dict(type='ToTensor'),
+    dict(
+        type='NormalizeTensor',
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]),
+    dict(type='TopDownGenerateTarget', sigma=2),
     dict(
         type='GetRootCenteredPose',
-        item='target',
+        item='target_3d',
         visible_item='target_visible',
         root_index=0,
         root_name='root_position',
         remove_root=True),
     dict(
         type='NormalizeJointCoordinate',
-        item='target',
+        item='target_3d',
         mean=joint_3d_normalize_param['mean'],
         std=joint_3d_normalize_param['std']),
     dict(
-        type='NormalizeJointCoordinate',
-        item='input_2d',
-        mean=joint_2d_normalize_param['mean'],
-        std=joint_2d_normalize_param['std']),
-    dict(type='PoseSequenceToTensor', item='input_2d'),
-    dict(
         type='Collect',
-        keys=[('input_2d', 'input'), 'target'],
+        keys=['img', 'target_3d', 'target', 'target_weight'],
         meta_name='metas',
         meta_keys=[
             'target_image_path', 'flip_pairs', 'root_position',
-            'root_position_index', 'target_mean', 'target_std'
+            'root_position_index', 'target_3d_mean', 'target_3d_std'
         ])
 ]
 
@@ -152,26 +194,26 @@ val_pipeline = train_pipeline
 test_pipeline = val_pipeline
 
 data = dict(
-    samples_per_gpu=64,
+    samples_per_gpu=24,
     workers_per_gpu=2,
-    val_dataloader=dict(samples_per_gpu=64),
-    test_dataloader=dict(samples_per_gpu=64),
+    val_dataloader=dict(samples_per_gpu=24),
+    test_dataloader=dict(samples_per_gpu=24),
     train=dict(
-        type='Body3DH36MDataset',
+        type='Body3DSViewH36MDataset',
         ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
-        type='Body3DH36MDataset',
+        type='Body3DSViewH36MDataset',
         ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
-        type='Body3DH36MDataset',
+        type='Body3DSViewH36MDataset',
         ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,

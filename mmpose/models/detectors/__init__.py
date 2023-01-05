@@ -11,10 +11,13 @@ from .one_stage import DisentangledKeypointRegressor
 from .pose_lifter import PoseLifter
 from .posewarper import PoseWarper
 from .top_down import TopDown
+from .top_down_3D import TopDown3D
+from .top_down_score import TopDownScore
+
 
 __all__ = [
     'TopDown', 'AssociativeEmbedding', 'CID', 'ParametricMesh', 'MultiTask',
     'PoseLifter', 'Interhand3D', 'PoseWarper', 'DetectAndRegress',
     'VoxelCenterDetector', 'VoxelSinglePose', 'GestureRecognizer',
-    'DisentangledKeypointRegressor'
+    'DisentangledKeypointRegressor', 'TopDown3D', 'TopDownScore'
 ]

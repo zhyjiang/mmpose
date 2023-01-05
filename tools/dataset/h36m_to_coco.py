@@ -58,13 +58,14 @@ def mmcv_track_func(func):
 @mmcv_track_func
 def _get_img_info(img_idx, img_name, img_root):
     try:
-        im = Image.open(osp.join(img_root, img_name))
+        im = Image.open(osp.join(img_root, img_name.split('_')[0], img_name[:-11], img_name))
         w, h = im.size
     except:  # noqa: E722
+        print(osp.join(img_root, img_name.split('_')[0], img_name[:-11], img_name))
         return None
 
     img = {
-        'file_name': img_name,
+        'file_name': osp.join(img_name.split('_')[0], img_name[:-11], img_name),
         'height': h,
         'width': w,
         'id': img_idx + 1,
