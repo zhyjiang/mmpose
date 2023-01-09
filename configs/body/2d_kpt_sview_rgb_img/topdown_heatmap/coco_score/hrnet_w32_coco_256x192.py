@@ -16,7 +16,7 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=0.001,
     step=[170, 200])
-total_epochs = 210
+total_epochs = 60
 channel_cfg = dict(
     num_output_channels=17,
     dataset_joints=17,
@@ -30,8 +30,7 @@ channel_cfg = dict(
 # model settings
 model = dict(
     type='TopDownScore',
-    pretrained='https://download.openmmlab.com/mmpose/'
-    'pretrain_models/hrnet_w32-36af842e.pth',
+    pretrained='checkpoint/hrnet_w32_coco_256x192-c78dce93_20200708.pth',
     backbone=dict(
         type='HRNet',
         in_channels=3,
@@ -75,7 +74,7 @@ model = dict(
             score_linear_layers=1
         ),
         loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=2000),
-        loss_score=dict(type='MSELoss'),
+        loss_score=dict(type='L1Loss'),
         loss_cls_score=dict(type='BCELoss')
     ),
     train_cfg=dict(heatmap_size=[48, 64]),
@@ -105,6 +104,7 @@ data_cfg = dict(
 
 train_pipeline = [
     dict(type='LoadImageFromFile'),
+    dict(type='TopDownSaveOriginalJoint'),
     dict(type='TopDownGetBboxCenterScale', padding=1.25),
     dict(type='TopDownRandomShiftBboxCenter', shift_factor=0.16, prob=0.3),
     dict(type='TopDownRandomFlip', flip_prob=0.5),
@@ -112,8 +112,8 @@ train_pipeline = [
         type='TopDownHalfBodyTransform',
         num_joints_half_body=8,
         prob_half_body=0.3),
-    dict(
-        type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
+    # dict(
+    #     type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
     dict(
@@ -125,8 +125,8 @@ train_pipeline = [
         type='Collect',
         keys=['img', 'target', 'target_weight'],
         meta_keys=[
-            'image_file', 'joints_3d', 'joints_3d_visible', 'center', 'scale',
-            'rotation', 'bbox_score', 'flip_pairs'
+            'image_file', 'joints_3d', 'joints_3d_visible', 'center', 'scale', 'bbox',
+            'rotation', 'bbox_score', 'flip_pairs', 'joints_3d_ori'
         ]),
 ]
 

@@ -55,6 +55,22 @@ class TopDownGetBboxCenterScale:
             results['scale'] = scale
         return results
 
+@PIPELINES.register_module()
+class TopDownSaveOriginalJoint:
+    """Save the original joint location
+
+    Required key: 'joints_3d'
+
+    Modifies key: 'joints_3d_ori'
+
+    """
+
+    def __init__(self):
+        pass
+
+    def __call__(self, results):
+        results['joints_3d_ori'] = results['joints_3d'].copy()
+        return results
 
 @PIPELINES.register_module()
 class TopDownRandomShiftBboxCenter:

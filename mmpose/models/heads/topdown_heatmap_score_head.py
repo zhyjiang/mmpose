@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+import numpy as np
 from mmcv.cnn import (build_conv_layer, build_norm_layer, build_upsample_layer,
                       constant_init, normal_init)
 
@@ -223,9 +224,62 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         assert not isinstance(self.loss, nn.Sequential)
         assert target.dim() == 4 and target_weight.dim() == 3
         losses['heatmap_loss'] = self.loss(output, target, target_weight)
+        
+        pred_keypoint = self.decode(img_metas, output.detach().cpu().numpy())['preds']
+        gt_keypoint = np.zeros_like(pred_keypoint)
+        area = []
+        bboxes = []
+        for img_id, img_meta in enumerate(img_metas):
+            bbox = img_meta['bbox']
+            gt_keypoint[img_id, :, :2] = img_meta['joints_3d_ori'][:, :2]
+            gt_keypoint[img_id, :, 2] = img_meta['joints_3d_visible'][:, 0]
+            area.append([bbox[2] * bbox[3]])
+            bboxes.append(bbox)
+        area = np.array(area)
+        bboxes = np.array(bboxes)
+        
+        oks_score = self.computeOKSPerJoint(pred_keypoint, gt_keypoint, area, bboxes)
+        
+        losses['oks_score_loss'] = self.score_loss(score, torch.Tensor(oks_score).cuda())
         losses['cls_score_loss'] = self.cls_score_loss(cls_score, target_weight.squeeze())
 
         return losses
+    
+    def computeOKSPerJoint(self, dts, gts, area, bbox):
+        num_points = np.zeros((len(dts), 1))
+        sigmas = np.array([.26, .25, .25, .35, .35, .79, .79, .72, .72, .62,.62, 1.07, 1.07, .87, .87, .89, .89])/10.0
+        ious = np.zeros((len(dts), len(sigmas)),dtype=np.float32)
+        vars = (sigmas * 2)**2
+        k = len(sigmas)
+        # compute oks between each detection and ground truth object
+        for j in range(gts.shape[0]):
+            g = gts[j,:,:]
+            d = dts[j,:,:]
+            # create bounds for ignore regions(double the gt bbox)
+            xg = g[:,0]; yg = g[:,1]; vg = g[:,2]
+            k1 = np.count_nonzero(vg > 0)
+            bb = bbox[j,:]
+            a = area[j,:]
+            x0 = bb[0] - bb[2]; x1 = bb[0] + bb[2] * 2
+            y0 = bb[1] - bb[3]; y1 = bb[1] + bb[3] * 2
+            
+            xd = d[:,0]; yd = d[:,1]
+            if k1>0:
+                # measure the per-keypoint distance if keypoints visible
+                dx = xd - xg
+                dy = yd - yg
+            else:
+                # measure minimum distance to keypoints in (x0,y0) & (x1,y1)
+                z = np.zeros((k))
+                dx = np.max((z, x0-xd),axis=0)+np.max((z, xd-x1),axis=0)
+                dy = np.max((z, y0-yd),axis=0)+np.max((z, yd-y1),axis=0)
+            e = (dx**2 + dy**2) / vars / (a+np.spacing(1)) / 2
+            # if k1 > 0:
+            #     e=e[vg > 0]
+            ious[j] = np.exp(-e)
+            ious[j][vg == 0] = 0
+            num_points[j] = k1
+        return ious
 
     def get_accuracy(self, output, target, target_weight):
         """Calculate accuracy for top-down keypoint loss.
