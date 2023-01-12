@@ -313,7 +313,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         x = self._transform_inputs(x)
         x = self.deconv_layers(x)
         heatmap = self.final_layer(x)
-        x_score = self.score_layer(torch.concat((x, heatmap), dim=1))
+        x_score = self.score_layer(torch.cat((x, heatmap), dim=1))
         x_score = x_score.view(x_score.size(0),-1)
         x_score = self.score_fc(x_score)
         score = self.score_head(x_score)

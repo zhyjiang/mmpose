@@ -186,7 +186,7 @@ class TopDownScore(BasePose):
             if self.with_neck:
                 features_flipped = self.neck(features_flipped)
             if self.with_keypoint:
-                output_flipped_heatmap = self.keypoint_head.inference_model(
+                output_flipped_heatmap, filpped_score, flipped_cls_score = self.keypoint_head.inference_model(
                     features_flipped, img_metas[0]['flip_pairs'])
                 output_heatmap = (output_heatmap + output_flipped_heatmap)
                 if self.test_cfg.get('regression_flip_shift', False):
@@ -196,7 +196,7 @@ class TopDownScore(BasePose):
         if self.with_keypoint:
             keypoint_result = self.keypoint_head.decode(
                 img_metas, output_heatmap, img_size=[img_width, img_height])
-            keypoint_result[:, :, 2] = score * cls_score
+            keypoint_result['preds'][:, :, 2] = score * cls_score
             result.update(keypoint_result)
 
             if not return_heatmap:
