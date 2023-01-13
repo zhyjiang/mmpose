@@ -196,7 +196,7 @@ class TopDownScore(BasePose):
         if self.with_keypoint:
             keypoint_result = self.keypoint_head.decode(
                 img_metas, output_heatmap, img_size=[img_width, img_height])
-            keypoint_result['preds'][:, :, 2] = score * cls_score
+            # keypoint_result['preds'][:, :, 2] = score * cls_score
             result.update(keypoint_result)
 
             if not return_heatmap:

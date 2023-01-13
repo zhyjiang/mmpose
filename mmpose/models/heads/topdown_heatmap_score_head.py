@@ -65,8 +65,15 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
 
         self.in_channels = in_channels
         self.loss = build_loss(loss_keypoint)
-        self.score_loss = build_loss(loss_score)
-        self.cls_score_loss = build_loss(loss_cls_score)
+        if loss_score is not None:
+            self.score_loss = build_loss(loss_score)
+        else:
+            self.score_loss = None
+        
+        if loss_cls_score is not None:
+            self.cls_score_loss = build_loss(loss_cls_score)
+        else:
+            self.cls_score_loss = None
 
         self.train_cfg = {} if train_cfg is None else train_cfg
         self.test_cfg = {} if test_cfg is None else test_cfg
@@ -158,7 +165,8 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         
         layers = []
         if extra is not None:
-            num_conv_layers = extra.get('score_conv_layers', 0)
+            num_conv_layers = extra['score_conv_layers']
+            self.score_head_train_epoch = extra['score_head_train_epoch']
             
             layers.append(
                 build_conv_layer(
@@ -225,23 +233,24 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         assert target.dim() == 4 and target_weight.dim() == 3
         losses['heatmap_loss'] = self.loss(output, target, target_weight)
         
-        pred_keypoint = self.decode(img_metas, output.detach().cpu().numpy())['preds']
-        gt_keypoint = np.zeros_like(pred_keypoint)
-        area = []
-        bboxes = []
-        for img_id, img_meta in enumerate(img_metas):
-            bbox = img_meta['bbox']
-            gt_keypoint[img_id, :, :2] = img_meta['joints_3d_ori'][:, :2]
-            gt_keypoint[img_id, :, 2] = img_meta['joints_3d_visible'][:, 0]
-            area.append([bbox[2] * bbox[3]])
-            bboxes.append(bbox)
-        area = np.array(area)
-        bboxes = np.array(bboxes)
-        
-        oks_score = self.computeOKSPerJoint(pred_keypoint, gt_keypoint, area, bboxes)
-        
-        losses['oks_score_loss'] = self.score_loss(score, torch.Tensor(oks_score).cuda())
-        losses['cls_score_loss'] = self.cls_score_loss(cls_score, target_weight.squeeze())
+        if self.score_loss is not None:
+            pred_keypoint = self.decode(img_metas, output.detach().cpu().numpy())['preds']
+            gt_keypoint = np.zeros_like(pred_keypoint)
+            area = []
+            bboxes = []
+            for img_id, img_meta in enumerate(img_metas):
+                bbox = img_meta['bbox']
+                gt_keypoint[img_id, :, :2] = img_meta['joints_3d_ori'][:, :2]
+                gt_keypoint[img_id, :, 2] = img_meta['joints_3d_visible'][:, 0]
+                area.append([bbox[2] * bbox[3]])
+                bboxes.append(bbox)
+            area = np.array(area)
+            bboxes = np.array(bboxes)
+            
+            oks_score = self.computeOKSPerJoint(pred_keypoint, gt_keypoint, area, bboxes)
+            
+            losses['oks_score_loss'] = self.score_loss(score, torch.Tensor(oks_score).cuda())
+            losses['cls_score_loss'] = self.cls_score_loss(cls_score, target_weight.squeeze())
 
         return losses
     

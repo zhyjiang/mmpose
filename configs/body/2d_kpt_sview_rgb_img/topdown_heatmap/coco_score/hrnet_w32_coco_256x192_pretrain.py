@@ -2,7 +2,7 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/coco.py'
 ]
-evaluation = dict(interval=10, metric='mAP', save_best='AP')
+evaluation = dict(interval=1, metric='mAP', save_best='AP')
 
 optimizer = dict(
     type='Adam',
@@ -16,7 +16,7 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=0.001,
     step=[20, 40])
-total_epochs = 60
+total_epochs = 20
 channel_cfg = dict(
     num_output_channels=17,
     dataset_joints=17,
@@ -74,9 +74,7 @@ model = dict(
             score_linear_layers=1,
             score_head_train_epoch=20
         ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=2000),
-        loss_score=dict(type='L1Loss'),
-        loss_cls_score=dict(type='BCELoss')
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True)
     ),
     train_cfg=dict(heatmap_size=[48, 64]),
     test_cfg=dict(
