@@ -67,7 +67,7 @@ model = dict(
         num_deconv_layers=0,
         extra=dict(
             final_conv_kernel=3, 
-            num_conv_layers=2, 
+            num_conv_layers=4, 
             score_conv_layers=3,
             score_conv_kernel=3,
             score_linear_dim=1024,
@@ -111,8 +111,8 @@ train_pipeline = [
         type='TopDownHalfBodyTransform',
         num_joints_half_body=8,
         prob_half_body=0.3),
-    # dict(
-    #     type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
+    dict(
+        type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
     dict(

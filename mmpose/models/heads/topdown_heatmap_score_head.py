@@ -154,7 +154,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
                     cfg=dict(type='Conv2d'),
                     in_channels=conv_channels,
                     out_channels=out_channels,
-                    kernel_size=kernel_size,
+                    kernel_size=1,
                     stride=1,
                     padding=padding))
 
@@ -173,7 +173,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
                     dict(type='Conv2d'),
                     in_channels=conv_channels + out_channels,
                     out_channels=conv_channels,
-                    kernel_size=score_kernel_size,
+                    kernel_size=1,
                     stride=1,
                     padding=score_padding))
 
