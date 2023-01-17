@@ -156,7 +156,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
                     out_channels=out_channels,
                     kernel_size=1,
                     stride=1,
-                    padding=padding))
+                    padding=0))
 
             if len(layers) > 1:
                 self.final_layer = nn.Sequential(*layers)
@@ -175,7 +175,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
                     out_channels=conv_channels,
                     kernel_size=1,
                     stride=1,
-                    padding=score_padding))
+                    padding=0))
 
             for i in range(num_conv_layers):
                 layers.append(
