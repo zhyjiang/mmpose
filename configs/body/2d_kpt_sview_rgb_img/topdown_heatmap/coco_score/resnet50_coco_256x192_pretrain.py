@@ -2,7 +2,7 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/coco.py'
 ]
-evaluation = dict(interval=10, metric='mAP', save_best='AP')
+evaluation = dict(interval=1, metric='mAP', save_best='AP')
 
 optimizer = dict(
     type='Adam',
@@ -14,9 +14,9 @@ lr_config = dict(
     policy='step',
     warmup='linear',
     warmup_iters=500,
-    warmup_ratio=0.0001,
-    step=[194, 214])
-total_epochs = 234
+    warmup_ratio=0.001,
+    step=[170, 200])
+total_epochs = 210
 channel_cfg = dict(
     num_output_channels=17,
     dataset_joints=17,
@@ -30,36 +30,8 @@ channel_cfg = dict(
 # model settings
 model = dict(
     type='TopDownScore',
-    pretrained='checkpoint/best_AP_epoch_174.pth',
-    backbone=dict(
-        type='HRNet',
-        in_channels=3,
-        extra=dict(
-            stage1=dict(
-                num_modules=1,
-                num_branches=1,
-                block='BOTTLENECK',
-                num_blocks=(4, ),
-                num_channels=(64, )),
-            stage2=dict(
-                num_modules=1,
-                num_branches=2,
-                block='BASIC',
-                num_blocks=(4, 4),
-                num_channels=(32, 64)),
-            stage3=dict(
-                num_modules=4,
-                num_branches=3,
-                block='BASIC',
-                num_blocks=(4, 4, 4),
-                num_channels=(32, 64, 128)),
-            stage4=dict(
-                num_modules=3,
-                num_branches=4,
-                block='BASIC',
-                num_blocks=(4, 4, 4, 4),
-                num_channels=(32, 64, 128, 256))),
-    ),
+    pretrained='torchvision://resnet50',
+    backbone=dict(type='ResNet', depth=50),
     keypoint_head=dict(
         type='TopdownHeatmapScoreHead',
         in_channels=32,
@@ -74,9 +46,7 @@ model = dict(
             score_linear_layers=1,
             score_head_train_epoch=20
         ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=2000),
-        loss_score=dict(type='L1Loss'),
-        loss_cls_score=dict(type='BCELoss')
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True)
     ),
     train_cfg=dict(heatmap_size=[48, 64]),
     test_cfg=dict(
@@ -113,8 +83,8 @@ train_pipeline = [
         type='TopDownHalfBodyTransform',
         num_joints_half_body=8,
         prob_half_body=0.3),
-    # dict(
-    #     type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
+    dict(
+        type='TopDownGetRandomScaleRotation', rot_factor=40, scale_factor=0.5),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
     dict(
@@ -153,7 +123,7 @@ test_pipeline = val_pipeline
 
 data_root = 'data/coco'
 data = dict(
-    samples_per_gpu=56,
+    samples_per_gpu=64,
     workers_per_gpu=4,
     val_dataloader=dict(samples_per_gpu=32),
     test_dataloader=dict(samples_per_gpu=32),
