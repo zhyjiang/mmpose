@@ -37,7 +37,7 @@ model = dict(
     ),
     keypoint_head=dict(
         type='TopdownHeatmapScoreHead',
-        in_channels=32,
+        in_channels=256,
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
         extra=dict(

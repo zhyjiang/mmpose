@@ -34,7 +34,7 @@ model = dict(
     backbone=dict(type='ResNet', depth=50),
     keypoint_head=dict(
         type='TopdownHeatmapScoreHead',
-        in_channels=32,
+        in_channels=2048,
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
         extra=dict(
