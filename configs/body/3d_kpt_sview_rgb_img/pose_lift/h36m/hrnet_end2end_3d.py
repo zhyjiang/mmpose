@@ -71,6 +71,10 @@ model = dict(
         num_deconv_layers=0,
         extra=dict(final_conv_kernel=1, ),
         loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True)),
+    keypoint3d_head=dict(
+        type='Topdown3DHead',
+        in_channels=32,
+    ),
     train_cfg=dict(),
     test_cfg=dict(
         flip_test=True,

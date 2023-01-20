@@ -174,7 +174,7 @@ class TopDown3D(BasePose):
         if self.with_keypoint:
             heatmap = self.keypoint_head(output)
         if self.with_keypoint:
-            pose3d = self.keypoint3d_head(output, heatmap)
+            pose3d = self.keypoint3d_head(output, heatmap, img_metas)
 
         # if return loss
         losses = dict()
