@@ -4,7 +4,7 @@ import torch.nn as nn
 from mmcv.cnn import (build_conv_layer, build_norm_layer, build_upsample_layer,
                       constant_init, normal_init)
 
-from mmpose.core.evaluation import pose_pck_accuracy
+from mmpose.core.evaluation import keypoint_mpjpe
 from mmpose.core.post_processing import flip_back
 from mmpose.models.builder import build_loss
 from mmpose.models.utils.ops import resize
@@ -50,6 +50,7 @@ class Topdown3DHead(nn.Module):
                  num_keypoints=17,
                  posemb_dim=[64],
                  mlp_dim=[128, 256],
+                 final_dim=[1024, 512],
                  loss_keypoint=None,
                  train_cfg=None,
                  test_cfg=None):
@@ -71,11 +72,10 @@ class Topdown3DHead(nn.Module):
                 posemb_layers.append(nn.Linear(6, self.posemb_dim[lid]))
             else:
                 posemb_layers.append(nn.Linear(self.posemb_dim[lid-1], self.posemb_dim[lid]))
-        
         if len(posemb_layers) > 1:
-                self.posemb_layers = nn.Sequential(*posemb_layers)
-            else:
-                self.posemb_layers = posemb_layers[0]
+            self.posemb_layers = nn.Sequential(*posemb_layers)
+        else:
+            self.posemb_layers = posemb_layers[0]
                 
         mlp_layers = []
         for lid in range(len(self.mlp_dim)):
@@ -87,62 +87,65 @@ class Topdown3DHead(nn.Module):
                 mlp_layers.append(nn.Conv1d(in_channels=self.mlp_dim[lid-1], 
                                             out_channels=self.mlp_dim[lid],
                                             kernel_size=1))
-        
         if len(mlp_layers) > 1:
-                self.mlp_layers = nn.Sequential(*mlp_layers)
+            self.mlp_layers = nn.Sequential(*mlp_layers)
+        else:
+            self.mlp_layers = mlp_layers[0]
+                
+        self.merge_layer = nn.Conv2d(in_channels=self.mlp_dim[-1],
+                                     out_channels=self.mlp_dim[-1],
+                                     kernel_size=(self.num_keypoints, 1))
+        
+        final_layers = []
+        for lid in range(len(self.final_dim)):
+            if lid == 0:
+                final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
             else:
-                self.mlp_layers = mlp_layers[0]
+                final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
+        final_layers.append(nn.Linear(self.final_dim[-1], self.num_keypoints * 3))
+        self.final_layers = nn.Sequential(*final_layers)
 
-    def get_loss(self, output, target, target_weight):
+    def get_loss(self, output, target):
         """Calculate top-down keypoint loss.
 
         Note:
             - batch_size: N
             - num_keypoints: K
-            - heatmaps height: H
-            - heatmaps weight: W
 
         Args:
-            output (torch.Tensor[N,K,H,W]): Output heatmaps.
-            target (torch.Tensor[N,K,H,W]): Target heatmaps.
-            target_weight (torch.Tensor[N,K,1]):
-                Weights across different joint types.
+            output (torch.Tensor[N,K,3]): Output keypoints.
+            target (torch.Tensor[N,K,3]): Target keypoints.
         """
 
         losses = dict()
 
         assert not isinstance(self.loss, nn.Sequential)
         assert target.dim() == 4 and target_weight.dim() == 3
-        losses['heatmap_loss'] = self.loss(output, target, target_weight)
+        losses['Key3D_loss'] = self.loss(output, target)
 
         return losses
 
-    def get_accuracy(self, output, target, target_weight):
-        """Calculate accuracy for top-down keypoint loss.
+    def get_mpjpe(self, output, target):
+        """Calculate MPJPE.
 
         Note:
             - batch_size: N
             - num_keypoints: K
-            - heatmaps height: H
-            - heatmaps weight: W
 
         Args:
-            output (torch.Tensor[N,K,H,W]): Output heatmaps.
-            target (torch.Tensor[N,K,H,W]): Target heatmaps.
-            target_weight (torch.Tensor[N,K,1]):
-                Weights across different joint types.
+            output (torch.Tensor[N,K,3]): Output keypoints.
+            target (torch.Tensor[N,K,3]): Target keypoints.
         """
 
-        accuracy = dict()
+        mpjpe = dict()
 
-        if self.target_type == 'GaussianHeatmap':
-            _, avg_acc, _ = pose_pck_accuracy(
-                output.detach().cpu().numpy(),
-                target.detach().cpu().numpy(),
-                target_weight.detach().cpu().numpy().squeeze(-1) > 0)
-            accuracy['acc_pose'] = float(avg_acc)
+        _, avg_acc, _ = keypoint_mpjpe(
+            output.detach().cpu().numpy(),
+            target.detach().cpu().numpy(),
+            target_weight.detach().cpu().numpy().squeeze(-1) > 0)
+        mpjpe['mpjpe'] = float(avg_acc)
 
-        return accuracy
+        return mpjpe
 
     def forward(self, x):
         """Forward function."""
@@ -211,8 +214,8 @@ class Topdown3DHead(nn.Module):
 
     def init_weights(self):
         """Initialize model weights."""
-        for _, m in self.deconv_layers.named_modules():
-            if isinstance(m, nn.ConvTranspose2d):
+        for _, m in self.posemb_layers.named_modules():
+            if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001)
             elif isinstance(m, nn.BatchNorm2d):
                 constant_init(m, 1)
