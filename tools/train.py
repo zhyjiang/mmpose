@@ -19,6 +19,8 @@ from mmpose.datasets import build_dataset
 from mmpose.models import build_posenet
 from mmpose.utils import collect_env, get_root_logger, setup_multi_processes
 
+import cv2
+cv2.setNumThreads(1)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a pose model')
