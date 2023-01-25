@@ -117,6 +117,7 @@ class TopDown3D(BasePose):
     def forward(self,
                 img,
                 target=None,
+                target_3d=None,
                 target_weight=None,
                 img_metas=None,
                 return_loss=True,
@@ -141,6 +142,7 @@ class TopDown3D(BasePose):
         Args:
             img (torch.Tensor[NxCximgHximgW]): Input images.
             target (torch.Tensor[NxKxHxW]): Target heatmaps.
+            target_3d (torch.Tensor[NxKx3]): Target 3D poses.
             target_weight (torch.Tensor[NxKx1]): Weights across
                 different joint types.
             img_metas (list(dict)): Information about data augmentation
@@ -161,20 +163,19 @@ class TopDown3D(BasePose):
                 and heatmaps.
         """
         if return_loss:
-            return self.forward_train(img, target, target_weight, img_metas,
+            return self.forward_train(img, target, target_3d, target_weight, img_metas,
                                       **kwargs)
         return self.forward_test(
             img, img_metas, return_heatmap=return_heatmap, **kwargs)
 
-    def forward_train(self, img, target, target_weight, img_metas, **kwargs):
+    def forward_train(self, img, target, target_3d, target_weight, img_metas, **kwargs):
         """Defines the computation performed at every call when training."""
         output = self.backbone(img)
         if self.with_neck:
             output = self.neck(output)
         if self.with_keypoint:
             heatmap = self.keypoint_head(output)
-        if self.with_keypoint:
-            pose3d = self.keypoint3d_head(output, heatmap, img_metas)
+            pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
 
         # if return loss
         losses = dict()
@@ -182,6 +183,9 @@ class TopDown3D(BasePose):
             keypoint_losses = self.keypoint_head.get_loss(
                 heatmap, target, target_weight)
             losses.update(keypoint_losses)
+            keypoint3d_losses = self.keypoint3d_head.get_loss(
+                pose3d, target_3d, target_weight)
+            losses.update(keypoint3d_losses)
             keypoint_accuracy = self.keypoint_head.get_accuracy(
                 heatmap, target, target_weight)
             losses.update(keypoint_accuracy)
@@ -203,30 +207,23 @@ class TopDown3D(BasePose):
         if self.with_keypoint:
             output_heatmap = self.keypoint_head.inference_model(
                 features, flip_pairs=None)
-
-        if self.test_cfg.get('flip_test', True):
-            img_flipped = img.flip(3)
-            features_flipped = self.backbone(img_flipped)
-            if self.with_neck:
-                features_flipped = self.neck(features_flipped)
-            if self.with_keypoint:
-                output_flipped_heatmap = self.keypoint_head.inference_model(
-                    features_flipped, img_metas[0]['flip_pairs'])
-                output_heatmap = (output_heatmap + output_flipped_heatmap)
-                if self.test_cfg.get('regression_flip_shift', False):
-                    output_heatmap[..., 0] -= 1.0 / img_width
-                output_heatmap = output_heatmap / 2
+            output_pose3d = self.keypoint3d_head.inference_model(
+                features, output_heatmap, img_metas)
 
         if self.with_keypoint:
             keypoint_result = self.keypoint_head.decode(
                 img_metas, output_heatmap, img_size=[img_width, img_height])
             result.update(keypoint_result)
+            keypoint3d_result = self.keypoint3d_head.decode(
+                img_metas, output_pose3d
+            )
+            result.update(keypoint3d_result)
 
             if not return_heatmap:
                 output_heatmap = None
 
             result['output_heatmap'] = output_heatmap
-
+            
         return result
 
     def forward_dummy(self, img):

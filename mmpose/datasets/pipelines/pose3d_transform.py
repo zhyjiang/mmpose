@@ -83,6 +83,59 @@ class GetRootCenteredPose:
 
 
 @PIPELINES.register_module()
+class GetRootCenteredPosewRoot:
+    """Zero-center the pose around a given root joint with root point.
+
+    Note that the root-centered joints may no longer align with some annotation
+    information (e.g. flip_pairs, num_joints, inference_channel, etc.) due to
+    the removal of the root joint.
+
+    Args:
+        item (str): The name of the pose to apply root-centering.
+        root_index (int): Root joint index in the pose.
+        visible_item (str): The name of the visibility item.
+        remove_root (bool): If true, remove the root joint from the pose
+        root_name (str): Optional. If not none, it will be used as the key to
+            store the root position separated from the original pose.
+
+    Required keys:
+        item
+
+    Modified keys:
+        item, visible_item, root_name
+    """
+
+    def __init__(self,
+                 item,
+                 root_index,
+                 visible_item=None,
+                 root_name=None):
+        self.item = item
+        self.root_index = root_index
+        self.root_name = root_name
+        self.visible_item = visible_item
+
+    def __call__(self, results):
+        assert self.item in results
+        joints = results[self.item]
+        root_idx = self.root_index
+
+        assert joints.ndim >= 2 and joints.shape[-2] > root_idx,\
+            f'Got invalid joint shape {joints.shape}'
+
+        root = joints[..., root_idx:root_idx + 1, :]
+        joints = joints - root
+        joints[..., root_idx:root_idx + 1, :] = root
+
+        results[self.item] = joints
+        if self.root_name is not None:
+            results[self.root_name] = root
+            results[f'{self.root_name}_index'] = self.root_index
+
+        return results
+
+
+@PIPELINES.register_module()
 class NormalizeJointCoordinate:
     """Normalize the joint coordinate with given mean and std.
 
