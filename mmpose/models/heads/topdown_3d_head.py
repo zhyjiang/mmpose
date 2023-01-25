@@ -155,7 +155,7 @@ class Topdown3DHead(nn.Module):
         """Forward function."""
         bbox = self.get_bbox(img_metas)
         keypoint, keyIdx = self.get_keypoint(heatmap)
-
+        
         posemb = torch.cat([keypoint, bbox], dim=2)
         posemb = self.posemb_layers(posemb)
         
@@ -239,7 +239,7 @@ class Topdown3DHead(nn.Module):
             target_std = np.stack([m['target_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
 
-        target_image_paths = [m.get('target_image_path', None) for m in metas]
+        target_image_paths = [m.get('target_image_path', None) for m in img_metas]
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
         return result

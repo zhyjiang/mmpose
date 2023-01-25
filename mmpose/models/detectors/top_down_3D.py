@@ -196,8 +196,6 @@ class TopDown3D(BasePose):
         """Defines the computation performed at every call when testing."""
         assert img.size(0) == len(img_metas)
         batch_size, _, img_height, img_width = img.shape
-        if batch_size > 1:
-            assert 'bbox_id' in img_metas[0]
 
         result = {}
 
@@ -205,10 +203,10 @@ class TopDown3D(BasePose):
         if self.with_neck:
             features = self.neck(features)
         if self.with_keypoint:
-            output_heatmap = self.keypoint_head.inference_model(
-                features, flip_pairs=None)
+            output_heatmap = self.keypoint_head(features)
             output_pose3d = self.keypoint3d_head.inference_model(
-                features, output_heatmap, img_metas)
+                features[0], output_heatmap, img_metas)
+            output_heatmap = output_heatmap.cpu().numpy()
 
         if self.with_keypoint:
             keypoint_result = self.keypoint_head.decode(

@@ -153,6 +153,8 @@ class Body3DSViewH36MDataset(Kpt3dSviewKpt2dDataset):
             'target_image_path': _imgnames[target_idx],
             'scales': _scales,
             'centers': _centers,
+            'center': _centers[target_idx],
+            'scale': _scales[target_idx],
             'bbox': self._get_bbox_xywh(_centers[target_idx], _scales[target_idx]),
             'ann_info': self.ann_info
         }

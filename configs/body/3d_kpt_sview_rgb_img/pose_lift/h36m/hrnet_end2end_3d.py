@@ -33,8 +33,7 @@ channel_cfg = dict(
 # model settings
 model = dict(
     type='TopDown3D',
-    pretrained='https://download.openmmlab.com/mmpose/'
-    'pretrain_models/hrnet_w32-36af842e.pth',
+    pretrained='checkpoint/hrnet_w32_h36m_256x256-d3206675_20210621.pth',
     backbone=dict(
         type='HRNet',
         in_channels=3,
@@ -162,7 +161,8 @@ train_pipeline = [
         meta_keys=[
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
-            'bbox', 'ann_info', 'image_width', 'image_height'
+            'bbox', 'ann_info', 'image_width', 'image_height',
+            'center', 'scale', 'image_file'
         ])
 ]
 
