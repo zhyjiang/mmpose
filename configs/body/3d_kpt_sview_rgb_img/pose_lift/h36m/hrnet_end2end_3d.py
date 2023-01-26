@@ -7,7 +7,7 @@ evaluation = dict(interval=2, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
 # optimizer settings
 optimizer = dict(
     type='Adam',
-    lr=1e-3,
+    lr=5e-4,
 )
 optimizer_config = dict(grad_clip=None)
 # learning policy
@@ -170,10 +170,10 @@ val_pipeline = train_pipeline
 test_pipeline = val_pipeline
 
 data = dict(
-    samples_per_gpu=24,
+    samples_per_gpu=48,
     workers_per_gpu=2,
     val_dataloader=dict(samples_per_gpu=24),
-    test_dataloader=dict(samples_per_gpu=24),
+    test_dataloader=dict(samples_per_gpu=48),
     train=dict(
         type='Body3DSViewH36MDataset',
         ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train.npz',

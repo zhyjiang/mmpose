@@ -239,6 +239,8 @@ class Topdown3DHead(nn.Module):
             target_std = np.stack([m['target_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
 
+        output = output + output[:, img_metas[0]['root_position_index']:img_metas[0]['root_position_index'] + 1, :]
+        output[:, img_metas[0]['root_position_index'], :] /= 2.0
         target_image_paths = [m.get('target_image_path', None) for m in img_metas]
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
