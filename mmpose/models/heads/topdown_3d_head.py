@@ -52,6 +52,7 @@ class Topdown3DHead(nn.Module):
                  posemb_dim=[64],
                  mlp_dim=[128, 256],
                  final_dim=[1024, 512],
+                 extra=None,
                  loss_keypoint=None,
                  train_cfg=None,
                  test_cfg=None):
@@ -104,8 +105,35 @@ class Topdown3DHead(nn.Module):
                 final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
             else:
                 final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
-        final_layers.append(nn.Linear(self.final_dim[-1], self.num_keypoints * 3))
-        self.final_layers = nn.Sequential(*final_layers)
+        
+        self.root_branch = None
+        self.pose_branch = None
+        if extra is None:
+            final_layers.append(nn.Linear(self.final_dim[-1], self.num_keypoints * 3))
+        else:
+            root_branch = []
+            pose_branch = []
+            for lid in range(len(extra['root_branch_dim'])):
+                if lid == 0:
+                    root_branch.append(nn.Linear(self.final_dim[-1], extra['root_branch_dim'][lid]))
+                else:
+                    root_branch.append(nn.Linear(extra['root_branch_dim'][lid - 1], 
+                                                 extra['root_branch_dim'][lid]))
+            root_branch.append(nn.Linear(extra['root_branch_dim'][-1], 3))
+            for lid in range(len(extra['pose_branch_dim'])):
+                if lid == 0:
+                    pose_branch.append(nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
+                else:
+                    pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
+                                                 extra['pose_branch_dim'][lid]))
+            pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
+            self.root_branch = nn.Sequential(*root_branch)
+            self.pose_branch = nn.Sequential(*pose_branch)
+        
+        if len(final_layers) > 1:
+            self.final_layers = nn.Sequential(*final_layers)
+        else:
+            self.final_layers = final_layers[0]
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -171,6 +199,10 @@ class Topdown3DHead(nn.Module):
         keyemb = self.merge_layer(keyemb)
         keyemb = torch.flatten(keyemb, start_dim=1)
         key3d = self.final_layers(keyemb)
+        if self.root_branch is not None:
+            root3d = self.root_branch(key3d)
+            pose3d = self.pose_branch(key3d)
+            key3d = torch.cat([root3d, pose3d], dim=1)
         key3d = key3d.view(-1, self.num_keypoints, 3)
         return key3d
 

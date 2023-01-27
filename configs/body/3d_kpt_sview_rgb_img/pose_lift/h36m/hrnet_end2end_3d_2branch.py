@@ -73,9 +73,13 @@ model = dict(
     keypoint3d_head=dict(
         type='Topdown3DHead',
         in_channels=32,
-        posemb_dim=[64],
+        posemb_dim=[32, 64],
         mlp_dim=[128, 256],
-        final_dim=[1024, 512],
+        final_dim=[512, 1024, 1024],
+        extra=dict(
+            root_branch_dim=[256, 64],
+            pose_branch_dim=[512, 256]
+        ),
         loss_keypoint=dict(type='L1Loss', use_target_weight=True)
     ),
     train_cfg=dict(
