@@ -42,6 +42,7 @@ class TopDown3D(BasePose):
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None,
+                 inference3d=True,
                  loss_pose=None,
                  loss_pose3d=None,):
         super().__init__()
@@ -51,6 +52,7 @@ class TopDown3D(BasePose):
 
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
+        self.inference3d = inference3d
 
         if neck is not None:
             self.neck = builder.build_neck(neck)
@@ -212,10 +214,12 @@ class TopDown3D(BasePose):
             keypoint_result = self.keypoint_head.decode(
                 img_metas, output_heatmap, img_size=[img_width, img_height])
             result.update(keypoint_result)
-            keypoint3d_result = self.keypoint3d_head.decode(
-                img_metas, output_pose3d
-            )
-            result.update(keypoint3d_result)
+            if self.inference3d:
+                result['preds2d'] = result['preds']
+                keypoint3d_result = self.keypoint3d_head.decode(
+                    img_metas, output_pose3d
+                )
+                result.update(keypoint3d_result)
 
             if not return_heatmap:
                 output_heatmap = None

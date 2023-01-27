@@ -111,7 +111,9 @@ class TopDownH36MDataset(Kpt2dSviewRgbImgTopDownDataset):
                     'dataset': self.dataset_name,
                     'bbox': obj['bbox'],
                     'bbox_score': 1,
-                    'bbox_id': bbox_id
+                    'bbox_id': bbox_id,
+                    'image_width': 1000,
+                    'image_height': 1000,
                 })
                 bbox_id = bbox_id + 1
         gt_db = sorted(gt_db, key=lambda x: x['bbox_id'])
