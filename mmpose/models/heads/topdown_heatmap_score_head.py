@@ -52,6 +52,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
                  num_deconv_layers=3,
                  num_deconv_filters=(256, 256, 256),
                  num_deconv_kernels=(4, 4, 4),
+                 fix_heatmap=False,
                  extra=None,
                  in_index=0,
                  input_transform=None,
@@ -64,7 +65,12 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         super().__init__()
 
         self.in_channels = in_channels
-        self.loss = build_loss(loss_keypoint)
+
+        if loss_keypoint is not None:
+            self.loss = build_loss(loss_keypoint)
+        else:
+            self.loss = None
+        
         if loss_score is not None:
             self.score_loss = build_loss(loss_score)
         else:
@@ -75,6 +81,7 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         else:
             self.cls_score_loss = None
 
+        self.fix_heatmap = fix_heatmap
         self.train_cfg = {} if train_cfg is None else train_cfg
         self.test_cfg = {} if test_cfg is None else test_cfg
         self.target_type = self.test_cfg.get('target_type', 'GaussianHeatmap')
@@ -166,7 +173,6 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         layers = []
         if extra is not None:
             num_conv_layers = extra['score_conv_layers']
-            self.score_head_train_epoch = extra['score_head_train_epoch']
             
             layers.append(
                 build_conv_layer(
@@ -231,7 +237,8 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
 
         assert not isinstance(self.loss, nn.Sequential)
         assert target.dim() == 4 and target_weight.dim() == 3
-        losses['heatmap_loss'] = self.loss(output, target, target_weight)
+        if self.loss is not None:
+            losses['heatmap_loss'] = self.loss(output, target, target_weight)
         
         if self.score_loss is not None:
             pred_keypoint = self.decode(img_metas, output.detach().cpu().numpy())['preds']
@@ -248,8 +255,10 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
             bboxes = np.array(bboxes)
             
             oks_score = self.computeOKSPerJoint(pred_keypoint, gt_keypoint, area, bboxes)
-            
-            losses['oks_score_loss'] = self.score_loss(score, torch.Tensor(oks_score).cuda())
+            target_weight_seq = target_weight.squeeze()
+
+            losses['oks_score_loss'] = self.score_loss(score * target_weight_seq, 
+                                                       torch.Tensor(oks_score).cuda() * target_weight_seq)
             losses['cls_score_loss'] = self.cls_score_loss(cls_score, target_weight.squeeze())
 
         return losses
@@ -320,9 +329,12 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
     def forward(self, x):
         """Forward function."""
         x = self._transform_inputs(x)
-        x = self.deconv_layers(x)
-        heatmap = self.final_layer(x)
-        x_score = self.score_layer(torch.cat((x, heatmap), dim=1))
+        heatmap_feature = self.deconv_layers(x)
+        heatmap = self.final_layer(heatmap_feature)
+        if self.fix_heatmap:
+            x_score = self.score_layer(torch.cat((x.detach(), heatmap.detach()), dim=1))
+        else:
+            x_score = self.score_layer(torch.cat((x, heatmap), dim=1))
         x_score = x_score.view(x_score.size(0),-1)
         x_score = self.score_fc(x_score)
         score = self.score_head(x_score)

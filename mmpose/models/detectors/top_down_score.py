@@ -40,6 +40,7 @@ class TopDownScore(BasePose):
                  keypoint_head=None,
                  train_cfg=None,
                  test_cfg=None,
+                 fix_backbone=False,
                  pretrained=None,
                  loss_pose=None):
         super().__init__()
@@ -49,6 +50,9 @@ class TopDownScore(BasePose):
 
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
+        self.fix_backbone = fix_backbone
+        if self.fix_backbone:
+            self.backbone._freeze_stages()
 
         if neck is not None:
             self.neck = builder.build_neck(neck)
@@ -196,7 +200,7 @@ class TopDownScore(BasePose):
         if self.with_keypoint:
             keypoint_result = self.keypoint_head.decode(
                 img_metas, output_heatmap, img_size=[img_width, img_height])
-            # keypoint_result['preds'][:, :, 2] = score * cls_score
+            keypoint_result['preds'][:, :, 2] = score * cls_score
             result.update(keypoint_result)
 
             if not return_heatmap:

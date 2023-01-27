@@ -60,20 +60,22 @@ model = dict(
                 num_blocks=(4, 4, 4, 4),
                 num_channels=(32, 64, 128, 256))),
     ),
+    fix_backbone=True,
     keypoint_head=dict(
         type='TopdownHeatmapScoreHead',
         in_channels=32,
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
+        fix_heatmap=True,
         extra=dict(
             final_conv_kernel=3, 
             num_conv_layers=4, 
             score_conv_layers=3,
             score_conv_kernel=3,
             score_linear_dim=1024,
-            score_linear_layers=1,
+            score_linear_layers=1
         ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=2000),
+        # loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=0),
         loss_score=dict(type='L1Loss'),
         loss_cls_score=dict(type='BCELoss')
     ),
