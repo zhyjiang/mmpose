@@ -172,28 +172,29 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
         
         layers = []
         if extra is not None:
-            num_conv_layers = extra['score_conv_layers']
-            
             layers.append(
                 build_conv_layer(
                     dict(type='Conv2d'),
                     in_channels=conv_channels + out_channels,
-                    out_channels=conv_channels,
+                    out_channels=extra['score_channels'][0],
                     kernel_size=1,
                     stride=1,
                     padding=0))
+            layers.append(
+                    build_norm_layer(dict(type='BN'), extra['score_channels'][0])[1])
+            layers.append(nn.ReLU(inplace=True))
 
-            for i in range(num_conv_layers):
+            for i in range(len(extra['score_channels']) - 1):
                 layers.append(
                     build_conv_layer(
                         dict(type='Conv2d'),
-                        in_channels=conv_channels,
-                        out_channels=conv_channels,
+                        in_channels=extra['score_channels'][i],
+                        out_channels=extra['score_channels'][i + 1],
                         kernel_size=score_kernel_size,
                         stride=2,
                         padding=score_padding))
                 layers.append(
-                    build_norm_layer(dict(type='BN'), conv_channels)[1])
+                    build_norm_layer(dict(type='BN'), extra['score_channels'][i + 1])[1])
                 layers.append(nn.ReLU(inplace=True))
 
         if len(layers) > 1:
@@ -202,8 +203,8 @@ class TopdownHeatmapScoreHead(TopdownHeatmapBaseHead):
             self.score_layer = layers[0]
         
         layers = []
-        layers.append(nn.Linear(conv_channels * self.train_cfg['heatmap_size'][0] * self.train_cfg['heatmap_size'][1] // 
-                                2**(extra['score_conv_layers'] * 2), extra['score_linear_dim']))
+        layers.append(nn.Linear(extra['score_channels'][-1] * self.train_cfg['heatmap_size'][0] * self.train_cfg['heatmap_size'][1] // 
+                                2**((len(extra['score_channels']) - 1) * 2), extra['score_linear_dim']))
         
         for i in range(extra['score_linear_layers']):
             layers.append(nn.Linear(extra['score_linear_dim'], extra['score_linear_dim']))

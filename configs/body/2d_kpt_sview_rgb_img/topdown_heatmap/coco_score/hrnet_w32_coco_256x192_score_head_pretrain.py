@@ -70,8 +70,8 @@ model = dict(
         extra=dict(
             final_conv_kernel=3, 
             num_conv_layers=4, 
-            score_conv_layers=3,
             score_conv_kernel=3,
+            score_channels=[64, 48, 48, 32],
             score_linear_dim=1024,
             score_linear_layers=1
         ),
