@@ -284,8 +284,8 @@ class Topdown3DHead(nn.Module):
         bbox = np.zeros((len(img_metas), 4))
         for i in range(len(img_metas)):
             bbox[i] = img_metas[i]['bbox']
-            bbox[i, 0::2] /= 256 # img_metas[i]['image_width']
-            bbox[i, 1::2] /= 256 # img_metas[i]['image_height'] 
+            bbox[i, 0::2] /= img_metas[i]['image_width']
+            bbox[i, 1::2] /= img_metas[i]['image_height'] 
             bbox[i, :2] = bbox[i, :2] * 2 - 1
         bbox = torch.FloatTensor(bbox).cuda()[:, None, :]
         bbox = bbox.repeat(1, self.num_keypoints, 1)

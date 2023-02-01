@@ -196,7 +196,9 @@ def _inference_single_pose_model(model,
                 'image_size': np.array(cfg.data_cfg['image_size']),
                 'num_joints': cfg.data_cfg['num_joints'],
                 'flip_pairs': flip_pairs
-            }
+            },
+            'image_width': 1000,
+            'image_height': 1000
         }
 
         if use_multi_frames:
