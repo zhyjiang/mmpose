@@ -345,15 +345,15 @@ class Topdown3DHead(nn.Module):
             target_std = np.stack([m['target_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
         
-        output[:, 0, :] = 0
         if self.test_cfg['restore_global_position']:
-            output = output[:, 1:, :] # move here
+            output = output[:, 1:, :]
             root_pos = np.stack([m['root_position'] for m in img_metas])
             root_idx = img_metas[0].get('root_position_index', None)
             output = self._restore_global_position(output, root_pos, root_idx)
-
-        # output = output + output[:, img_metas[0]['root_position_index']:img_metas[0]['root_position_index'] + 1, :]
-        # output[:, img_metas[0]['root_position_index'], :] /= 2.0
+        else:
+            output = output + output[:, img_metas[0]['root_position_index']:img_metas[0]['root_position_index'] + 1, :]
+            output[:, img_metas[0]['root_position_index'], :] /= 2.0
+            
         target_image_paths = [m.get('target_image_path', None) for m in img_metas]
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
