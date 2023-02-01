@@ -191,6 +191,10 @@ class TopDown3D(BasePose):
             keypoint_accuracy = self.keypoint_head.get_accuracy(
                 heatmap, target, target_weight)
             losses.update(keypoint_accuracy)
+            keypoint_3d_accuracy = self.keypoint3d_head.get_accuracy(
+                pose3d, target_3d, target_weight, img_metas
+            )
+            losses.update(keypoint_3d_accuracy)
 
         return losses
 

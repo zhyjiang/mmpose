@@ -190,7 +190,8 @@ val_pipeline = [
         meta_keys=[
             'image_file', 'center', 'scale', 'rotation', 'bbox_score',
             'flip_pairs', 'bbox', 'image_width', 'image_height',
-            'ann_info'
+            'ann_info', 'root_position_index', 'target_3d_mean', 
+            'target_3d_std'
         ]),
 ]
 

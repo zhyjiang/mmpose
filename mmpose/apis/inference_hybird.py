@@ -198,7 +198,8 @@ def _inference_single_pose_model(model,
                 'flip_pairs': flip_pairs
             },
             'image_width': 1000,
-            'image_height': 1000
+            'image_height': 1000,
+            'root_position_index': 0,
         }
 
         if use_multi_frames:

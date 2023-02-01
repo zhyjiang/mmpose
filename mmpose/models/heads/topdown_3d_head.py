@@ -340,9 +340,9 @@ class Topdown3DHead(nn.Module):
                     the root joint before root-centering.
         """
         # Denormalize the predicted pose
-        if 'target_mean' in img_metas[0] and 'target_std' in img_metas[0]:
-            target_mean = np.stack([m['target_mean'] for m in img_metas])
-            target_std = np.stack([m['target_std'] for m in img_metas])
+        if 'target_3d_mean' in img_metas[0] and 'target_3d_std' in img_metas[0]:
+            target_mean = np.stack([m['target_3d_mean'] for m in img_metas])
+            target_std = np.stack([m['target_3d_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
         
         if self.test_cfg['restore_global_position']:
@@ -358,6 +358,20 @@ class Topdown3DHead(nn.Module):
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
         return result
+    
+    @staticmethod
+    def _denormalize_joints(x, mean, std):
+        """Denormalize joint coordinates with given statistics mean and std.
+
+        Args:
+            x (np.ndarray[N, K, 3]): Normalized joint coordinates.
+            mean (np.ndarray[K, 3]): Mean value.
+            std (np.ndarray[K, 3]): Std value.
+        """
+        assert x.ndim == 3
+        assert x.shape == mean.shape == std.shape
+
+        return x * std + mean
 
     @staticmethod
     def _restore_global_position(x, root_pos, root_idx=None):
