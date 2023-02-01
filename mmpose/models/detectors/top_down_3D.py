@@ -7,7 +7,7 @@ from mmcv.image import imwrite
 from mmcv.utils.misc import deprecated_api_warning
 from mmcv.visualization.image import imshow
 
-from mmpose.core import imshow_bboxes, imshow_keypoints
+from mmpose.core import imshow_bboxes, imshow_keypoints, imshow_keypoints_3d
 from .. import builder
 from ..builder import POSENETS
 from .base import BasePose
@@ -249,8 +249,8 @@ class TopDown3D(BasePose):
     @deprecated_api_warning({'pose_limb_color': 'pose_link_color'},
                             cls_name='TopDown')
     def show_result(self,
-                    img,
                     result,
+                    img,
                     skeleton=None,
                     kpt_score_thr=0.3,
                     bbox_color='green',
@@ -261,6 +261,9 @@ class TopDown3D(BasePose):
                     thickness=1,
                     font_scale=0.5,
                     bbox_thickness=1,
+                    vis_height=400,
+                    num_instances=-1,
+                    axis_azimuth=-115,
                     win_name='',
                     show=False,
                     show_keypoint_weight=False,
@@ -297,40 +300,67 @@ class TopDown3D(BasePose):
         Returns:
             Tensor: Visualized img, only if not `show` or `out_file`.
         """
-        img = mmcv.imread(img)
-        img = img.copy()
+        if num_instances < 0:
+            assert len(result) > 0
+        result = sorted(result, key=lambda x: x.get('track_id', 0))
+        # draw image and 2d poses
+        if img is not None:
+            img = mmcv.imread(img)
 
-        bbox_result = []
-        bbox_labels = []
-        pose_result = []
-        for res in result:
-            if 'bbox' in res:
-                bbox_result.append(res['bbox'])
-                bbox_labels.append(res.get('label', None))
-            pose_result.append(res['keypoints'])
+            bbox_result = []
+            pose_2d = []
+            for res in result:
+                if 'bbox' in res:
+                    bbox = np.array(res['bbox'])
+                    if bbox.ndim != 1:
+                        assert bbox.ndim == 2
+                        bbox = bbox[-1]  # Get bbox from the last frame
+                    bbox_result.append(bbox)
+                if 'keypoints' in res:
+                    kpts = np.array(res['keypoints'])
+                    if kpts.ndim != 2:
+                        assert kpts.ndim == 3
+                        kpts = kpts[-1]  # Get 2D keypoints from the last frame
+                    pose_2d.append(kpts)
 
-        if bbox_result:
-            bboxes = np.vstack(bbox_result)
-            # draw bounding boxes
-            imshow_bboxes(
-                img,
-                bboxes,
-                labels=bbox_labels,
-                colors=bbox_color,
-                text_color=text_color,
-                thickness=bbox_thickness,
-                font_scale=font_scale,
-                show=False)
-
-        if pose_result:
-            imshow_keypoints(img, pose_result, skeleton, kpt_score_thr,
-                             pose_kpt_color, pose_link_color, radius,
-                             thickness)
+            if len(bbox_result) > 0:
+                bboxes = np.vstack(bbox_result)
+                mmcv.imshow_bboxes(
+                    img,
+                    bboxes,
+                    colors=bbox_color,
+                    top_k=-1,
+                    thickness=2,
+                    show=False)
+            if len(pose_2d) > 0:
+                imshow_keypoints(
+                    img,
+                    pose_2d,
+                    skeleton,
+                    kpt_score_thr=kpt_score_thr,
+                    pose_kpt_color=pose_kpt_color,
+                    pose_link_color=pose_link_color,
+                    radius=radius,
+                    thickness=thickness)
+            img = mmcv.imrescale(img, scale=vis_height / img.shape[0])
+        
+        img_vis = imshow_keypoints_3d(
+            result,
+            img,
+            skeleton,
+            pose_kpt_color,
+            pose_link_color,
+            vis_height,
+            axis_limit=300,
+            axis_azimuth=axis_azimuth,
+            axis_elev=15,
+            kpt_score_thr=kpt_score_thr,
+            num_instances=num_instances)
 
         if show:
-            imshow(img, win_name, wait_time)
+            mmcv.visualization.imshow(img_vis, win_name, wait_time)
 
         if out_file is not None:
-            imwrite(img, out_file)
+            mmcv.imwrite(img_vis, out_file)
 
-        return img
+        return img_vis

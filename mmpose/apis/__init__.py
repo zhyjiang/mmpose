@@ -6,6 +6,7 @@ from .inference import (collect_multi_frames, inference_bottom_up_pose_model,
 from .inference_3d import (extract_pose_sequence, inference_interhand_3d_model,
                            inference_mesh_model, inference_pose_lifter_model,
                            vis_3d_mesh_result, vis_3d_pose_result)
+from .inference_hybird import inference_top_down_pose_hybird_model
 from .inference_tracking import get_track_id, vis_pose_tracking_result
 from .test import multi_gpu_test, single_gpu_test
 from .train import init_random_seed, train_model
@@ -14,6 +15,7 @@ __all__ = [
     'train_model',
     'init_pose_model',
     'inference_top_down_pose_model',
+    'inference_top_down_pose_hybird_model',
     'inference_bottom_up_pose_model',
     'multi_gpu_test',
     'single_gpu_test',
