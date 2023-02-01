@@ -15,6 +15,7 @@ from .topdown_heatmap_multi_stage_head import (TopdownHeatmapMSMUHead,
                                                TopdownHeatmapMultiStageHead)
 from .topdown_heatmap_simple_head import TopdownHeatmapSimpleHead
 from .topdown_3d_head import Topdown3DHead
+from .topdown_3d_gcn_head import Topdown3DGCNHead
 from .topdown_heatmap_score_head import TopdownHeatmapScoreHead
 from .vipnas_heatmap_simple_head import ViPNASHeatmapSimpleHead
 from .voxelpose_head import CuboidCenterHead, CuboidPoseHead
@@ -26,5 +27,5 @@ __all__ = [
     'DeepposeRegressionHead', 'TemporalRegressionHead', 'Interhand3DHead',
     'HMRMeshHead', 'DeconvHead', 'ViPNASHeatmapSimpleHead', 'CuboidCenterHead',
     'CuboidPoseHead', 'MultiModalSSAHead', 'DEKRHead',
-    'Topdown3DHead', 'TopdownHeatmapScoreHead'
+    'Topdown3DHead', 'TopdownHeatmapScoreHead', 'Topdown3DGCNHead'
 ]

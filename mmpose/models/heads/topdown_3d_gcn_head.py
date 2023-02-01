@@ -11,10 +11,11 @@ from mmpose.models.builder import build_loss
 from mmpose.models.utils.ops import resize
 from ..builder import HEADS
 from .topdown_heatmap_base_head import TopdownHeatmapBaseHead
+from ..necks.sem_gcn import SemGCN
 
 
 @HEADS.register_module()
-class Topdown3DHead(nn.Module):
+class Topdown3DGCNHead(nn.Module):
     """Top-down heatmap simple head. paper ref: Bin Xiao et al. ``Simple
     Baselines for Human Pose Estimation and Tracking``.
 
@@ -50,9 +51,9 @@ class Topdown3DHead(nn.Module):
                  in_channels,
                  num_keypoints=17,
                  posemb_dim=[64],
-                 mlp_dim=[128, 256],
-                 final_dim=[1024, 512],
-                 extra=None,
+                 hid_dim=128,
+                 num_layers=4,
+                 p_dropout=0.15,
                  loss_keypoint=None,
                  train_cfg=None,
                  test_cfg=None):
@@ -66,8 +67,6 @@ class Topdown3DHead(nn.Module):
         
         self.num_keypoints = num_keypoints
         self.posemb_dim = posemb_dim
-        self.mlp_dim = mlp_dim
-        self.final_dim = final_dim
         
         posemb_layers = []
         for lid in range(len(self.posemb_dim)):
@@ -80,60 +79,8 @@ class Topdown3DHead(nn.Module):
         else:
             self.posemb_layers = posemb_layers[0]
                 
-        mlp_layers = []
-        for lid in range(len(self.mlp_dim)):
-            if lid == 0:
-                mlp_layers.append(nn.Conv1d(in_channels=in_channels + self.posemb_dim[-1], 
-                                            out_channels=self.mlp_dim[lid],
-                                            kernel_size=1))
-            else:
-                mlp_layers.append(nn.Conv1d(in_channels=self.mlp_dim[lid-1], 
-                                            out_channels=self.mlp_dim[lid],
-                                            kernel_size=1))
-        if len(mlp_layers) > 1:
-            self.mlp_layers = nn.Sequential(*mlp_layers)
-        else:
-            self.mlp_layers = mlp_layers[0]
-                
-        self.merge_layer = nn.Conv2d(in_channels=self.mlp_dim[-1],
-                                     out_channels=self.mlp_dim[-1],
-                                     kernel_size=(self.num_keypoints, 1))
-        
-        final_layers = []
-        for lid in range(len(self.final_dim)):
-            if lid == 0:
-                final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
-            else:
-                final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
-        
-        self.root_branch = None
-        self.pose_branch = None
-        if extra is None:
-            final_layers.append(nn.Linear(self.final_dim[-1], self.num_keypoints * 3))
-        else:
-            root_branch = []
-            pose_branch = []
-            for lid in range(len(extra['root_branch_dim'])):
-                if lid == 0:
-                    root_branch.append(nn.Linear(self.final_dim[-1], extra['root_branch_dim'][lid]))
-                else:
-                    root_branch.append(nn.Linear(extra['root_branch_dim'][lid - 1], 
-                                                 extra['root_branch_dim'][lid]))
-            root_branch.append(nn.Linear(extra['root_branch_dim'][-1], 3))
-            for lid in range(len(extra['pose_branch_dim'])):
-                if lid == 0:
-                    pose_branch.append(nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
-                else:
-                    pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
-                                                 extra['pose_branch_dim'][lid]))
-            pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
-            self.root_branch = nn.Sequential(*root_branch)
-            self.pose_branch = nn.Sequential(*pose_branch)
-        
-        if len(final_layers) > 1:
-            self.final_layers = nn.Sequential(*final_layers)
-        else:
-            self.final_layers = final_layers[0]
+        self.sem_gcn = SemGCN(self.num_keypoints, hid_dim, coords_dim=(posemb_dim[-1] + in_channels, 3), 
+                              num_layers=num_layers, p_dropout=p_dropout)
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -193,17 +140,7 @@ class Topdown3DHead(nn.Module):
                 featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
                 
         keyemb = torch.cat([posemb, featemb], dim=2)
-        keyemb = keyemb.permute(0, 2, 1)
-        keyemb = self.mlp_layers(keyemb)
-        keyemb = keyemb[:, :, :, None]
-        keyemb = self.merge_layer(keyemb)
-        keyemb = torch.flatten(keyemb, start_dim=1)
-        key3d = self.final_layers(keyemb)
-        if self.root_branch is not None:
-            root3d = self.root_branch(key3d)
-            pose3d = self.pose_branch(key3d)
-            key3d = torch.cat([root3d, pose3d], dim=1)
-        key3d = key3d.view(-1, self.num_keypoints, 3)
+        key3d = self.sem_gcn(keyemb)
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
@@ -379,20 +316,5 @@ class Topdown3DHead(nn.Module):
         for _, m in self.posemb_layers.named_modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001)
-            elif isinstance(m, nn.BatchNorm2d):
-                constant_init(m, 1)
-        for m in self.merge_layer.modules():
-            if isinstance(m, nn.Conv2d):
-                normal_init(m, std=0.001, bias=0)
-            elif isinstance(m, nn.BatchNorm2d):
-                constant_init(m, 1)
-        for m in self.mlp_layers.modules():
-            if isinstance(m, nn.Conv1d):
-                normal_init(m, std=0.001, bias=0)
-            elif isinstance(m, nn.BatchNorm2d):
-                constant_init(m, 1)
-        for m in self.final_layers.modules():
-            if isinstance(m, nn.Linear):
-                normal_init(m, std=0.001, bias=0)
             elif isinstance(m, nn.BatchNorm2d):
                 constant_init(m, 1)
