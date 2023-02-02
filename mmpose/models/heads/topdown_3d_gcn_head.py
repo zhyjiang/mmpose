@@ -296,6 +296,20 @@ class Topdown3DGCNHead(nn.Module):
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
         return result
+    
+    @staticmethod
+    def _denormalize_joints(x, mean, std):
+        """Denormalize joint coordinates with given statistics mean and std.
+
+        Args:
+            x (np.ndarray[N, K, 3]): Normalized joint coordinates.
+            mean (np.ndarray[K, 3]): Mean value.
+            std (np.ndarray[K, 3]): Std value.
+        """
+        assert x.ndim == 3
+        assert x.shape == mean.shape == std.shape
+
+        return x * std + mean
 
     @staticmethod
     def _restore_global_position(x, root_pos, root_idx=None):
@@ -312,6 +326,25 @@ class Topdown3DGCNHead(nn.Module):
         if root_idx is not None:
             x = np.insert(x, root_idx, root_pos.squeeze(1), axis=1)
         return x
+
+    @staticmethod
+    def _restore_root_target_weight(target_weight, root_weight, root_idx=None):
+        """Restore the target weight of the root joint after the restoration of
+        the global position.
+
+        Args:
+            target_weight (np.ndarray[N, K, 1]): Target weight of relativized
+                joints.
+            root_weight (float): The target weight value of the root joint.
+            root_idx (int|None): If not none, the root joint weight will be
+                inserted back to the target weight at the given index.
+        """
+        if root_idx is not None:
+            root_weight = np.full(
+                target_weight.shape[0], root_weight, dtype=target_weight.dtype)
+            target_weight = np.insert(
+                target_weight, root_idx, root_weight[:, None], axis=1)
+        return target_weight
 
     def init_weights(self):
         """Initialize model weights."""

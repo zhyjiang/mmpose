@@ -388,6 +388,25 @@ class Topdown3DHead(nn.Module):
         if root_idx is not None:
             x = np.insert(x, root_idx, root_pos.squeeze(1), axis=1)
         return x
+    
+    @staticmethod
+    def _restore_root_target_weight(target_weight, root_weight, root_idx=None):
+        """Restore the target weight of the root joint after the restoration of
+        the global position.
+
+        Args:
+            target_weight (np.ndarray[N, K, 1]): Target weight of relativized
+                joints.
+            root_weight (float): The target weight value of the root joint.
+            root_idx (int|None): If not none, the root joint weight will be
+                inserted back to the target weight at the given index.
+        """
+        if root_idx is not None:
+            root_weight = np.full(
+                target_weight.shape[0], root_weight, dtype=target_weight.dtype)
+            target_weight = np.insert(
+                target_weight, root_idx, root_weight[:, None], axis=1)
+        return target_weight
 
     def init_weights(self):
         """Initialize model weights."""
