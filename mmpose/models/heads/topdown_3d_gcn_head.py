@@ -237,6 +237,7 @@ class Topdown3DGCNHead(nn.Module):
         keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
         
         keyIdx = keypoint.cpu().numpy()
+        keypoint = keypoint.float()
         keypoint[:, :, 0] = keypoint[:, :, 0] / self.train_cfg['heatmap_size'][1] * 2 - 1
         keypoint[:, :, 1] = keypoint[:, :, 1] / self.train_cfg['heatmap_size'][0] * 2 - 1
         return keypoint, keyIdx

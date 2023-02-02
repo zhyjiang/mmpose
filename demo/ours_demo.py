@@ -3,7 +3,10 @@ import os
 import os.path as osp
 import warnings
 from argparse import ArgumentParser
+import json
+import copy
 
+import numpy as np
 import mmcv
 from xtcocotools.coco import COCO
 
@@ -90,6 +93,7 @@ def main():
 
     assert args.show or (args.out_img_root != '')
 
+    json_file = json.load(open(args.json_file))
     coco = COCO(args.json_file)
     # build the pose model from a config file and a checkpoint file
     pose_model = init_pose_model(
@@ -112,6 +116,7 @@ def main():
 
     # e.g. use ('backbone', ) to return backbone feature
     output_layer_names = None
+    pose_jsons = []
     # process each image
     for i in mmcv.track_iter_progress(range(len(img_keys))):
         # get bounding box annotations
@@ -122,9 +127,11 @@ def main():
 
         # make person bounding boxes
         person_results = []
+        anns = []
         for ann_id in ann_ids:
             person = {}
             ann = coco.anns[ann_id]
+            anns.append(ann)
             # ann: dict_keys(['id', 'category_id', 'image_id', 'iscrowd', 'bbox', 'area', 'num_keypoints', 'keypoints', 'keypoints_3d'])
             
             # bbox format is 'xywh'
@@ -149,6 +156,9 @@ def main():
         else:
             os.makedirs(args.out_img_root, exist_ok=True)
             out_file = os.path.join(args.out_img_root, f'vis_{i}.jpg')
+        pose_jsons.append(copy.deepcopy(pose_results[0]))
+        pose_results[0]['keypoints_3d'] -= pose_results[0]['keypoints_3d'][:1, :]
+        pose_results[0]['keypoints_3d'] /= 10
 
         vis_3d_pose_result(
             pose_model,
@@ -157,6 +167,7 @@ def main():
             dataset_info=dataset_info,
             out_file=out_file)
 
+    np.save(os.path.join(args.out_img_root, 'output.npy'), pose_jsons)
 
 if __name__ == '__main__':
     main()
