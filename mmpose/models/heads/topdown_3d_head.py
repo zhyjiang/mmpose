@@ -238,9 +238,9 @@ class Topdown3DHead(nn.Module):
         output_ = output.detach().cpu().numpy()
         target_ = target.detach().cpu().numpy()
         # Denormalize the predicted pose
-        if 'target_mean' in metas[0] and 'target_std' in metas[0]:
-            target_mean = np.stack([m['target_mean'] for m in metas])
-            target_std = np.stack([m['target_std'] for m in metas])
+        if 'target_3d_mean' in metas[0] and 'target_3d_std' in metas[0]:
+            target_mean = np.stack([m['target_3d_mean'] for m in metas])
+            target_std = np.stack([m['target_3d_std'] for m in metas])
             output_ = self._denormalize_joints(output_, target_mean,
                                                target_std)
             target_ = self._denormalize_joints(target_, target_mean,
