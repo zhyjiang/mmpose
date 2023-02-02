@@ -88,6 +88,7 @@ model = dict(
         heatmap_size=[64, 64],
         flip_test=False,
         post_process='default',
+        restore_global_position=True,
         shift_heatmap=True,
         modulate_kernel=11))
 
@@ -173,12 +174,42 @@ train_pipeline = [
         ])
 ]
 
-val_pipeline = train_pipeline
+val_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    dict(type='TopDownAffine'),
+    dict(type='ToTensor'),
+    dict(
+        type='GetRootCenteredPosewRoot',
+        item='target_3d',
+        visible_item='target_visible',
+        root_index=0,
+        root_name='root_position'),
+    dict(
+        type='NormalizeJointCoordinate',
+        item='target_3d',
+        mean=joint_3d_normalize_param['mean'],
+        std=joint_3d_normalize_param['std']),
+    dict(
+        type='NormalizeTensor',
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]),
+    dict(
+        type='Collect',
+        keys=['img'],
+        meta_keys=[
+            'target_image_path', 'flip_pairs', 'root_position',
+            'root_position_index', 'target_3d_mean', 'target_3d_std',
+            'bbox', 'ann_info', 'image_width', 'image_height',
+            'center', 'scale', 'image_file'
+        ])
+]
 test_pipeline = val_pipeline
 
 data = dict(
     samples_per_gpu=32,
-    workers_per_gpu=2,
+    workers_per_gpu=4,
     val_dataloader=dict(samples_per_gpu=24),
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(

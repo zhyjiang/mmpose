@@ -345,7 +345,7 @@ class Topdown3DHead(nn.Module):
             target_std = np.stack([m['target_3d_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
         
-        if self.test_cfg['restore_global_position']:
+        if self.test_cfg.get('restore_global_position', False):
             output = output[:, 1:, :]
             root_pos = np.stack([m['root_position'] for m in img_metas])
             root_idx = img_metas[0].get('root_position_index', None)

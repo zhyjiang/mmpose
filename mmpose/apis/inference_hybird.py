@@ -200,6 +200,8 @@ def _inference_single_pose_model(model,
             'image_width': 1000,
             'image_height': 1000,
             'root_position_index': 0,
+            'target_3d_mean': [[0, 0, 0] for i in range(17)],
+            'target_3d_std': [[1, 1, 1] if i == 0 else [1.7, 1.7, 1.7] for i in range(17)]
         }
 
         if use_multi_frames:
