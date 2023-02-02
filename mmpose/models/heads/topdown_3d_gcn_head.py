@@ -5,6 +5,7 @@ import torch.nn as nn
 from mmcv.cnn import (build_conv_layer, build_norm_layer, build_upsample_layer,
                       constant_init, normal_init)
 
+from mmpose.core import compute_similarity_transform
 from mmpose.core.evaluation import keypoint_mpjpe
 from mmpose.core.post_processing import flip_back
 from mmpose.models.builder import build_loss
