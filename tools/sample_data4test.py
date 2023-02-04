@@ -12,7 +12,7 @@ def _get_bbox_xywh(center, scale, w=200, h=200):
     return [x, y, w, h]
 
 data_test = np.load('data/h36m/annotation_body3d/fps10/h36m_test.npz')
-print(data_test.files)
+# print(data_test.files)
 index_list = [i for i in range(data_test['scale'].shape[0])]
 random.shuffle(index_list)
 data_sampled = dict()
