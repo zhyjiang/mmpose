@@ -12,11 +12,10 @@ from mmpose.models.builder import build_loss
 from mmpose.models.utils.ops import resize
 from ..builder import HEADS
 from .topdown_heatmap_base_head import TopdownHeatmapBaseHead
-from ..necks.sem_gcn import SemGCN
 
 
 @HEADS.register_module()
-class Topdown3DGCNHead(nn.Module):
+class Topdown3D2BranchHead(nn.Module):
     """Top-down heatmap simple head. paper ref: Bin Xiao et al. ``Simple
     Baselines for Human Pose Estimation and Tracking``.
 
@@ -52,9 +51,9 @@ class Topdown3DGCNHead(nn.Module):
                  in_channels,
                  num_keypoints=17,
                  posemb_dim=[64],
-                 hid_dim=128,
-                 num_layers=4,
-                 p_dropout=0.15,
+                 mlp_dim=[128, 256],
+                 final_dim=[1024, 512],
+                 extra=None,
                  loss_keypoint=None,
                  train_cfg=None,
                  test_cfg=None):
@@ -68,6 +67,8 @@ class Topdown3DGCNHead(nn.Module):
         
         self.num_keypoints = num_keypoints
         self.posemb_dim = posemb_dim
+        self.mlp_dim = mlp_dim
+        self.final_dim = final_dim
         
         posemb_layers = []
         for lid in range(len(self.posemb_dim)):
@@ -80,8 +81,52 @@ class Topdown3DGCNHead(nn.Module):
         else:
             self.posemb_layers = posemb_layers[0]
                 
-        self.sem_gcn = SemGCN(self.num_keypoints, hid_dim, coords_dim=(posemb_dim[-1] + in_channels, 3), 
-                              num_layers=num_layers, p_dropout=p_dropout)
+        mlp_layers = []
+        for lid in range(len(self.mlp_dim)):
+            if lid == 0:
+                mlp_layers.append(nn.Conv1d(in_channels=in_channels + self.posemb_dim[-1], 
+                                            out_channels=self.mlp_dim[lid],
+                                            kernel_size=1))
+            else:
+                mlp_layers.append(nn.Conv1d(in_channels=self.mlp_dim[lid-1], 
+                                            out_channels=self.mlp_dim[lid],
+                                            kernel_size=1))
+        if len(mlp_layers) > 1:
+            self.mlp_layers = nn.Sequential(*mlp_layers)
+        else:
+            self.mlp_layers = mlp_layers[0]
+                
+        self.merge_layer = nn.Conv2d(in_channels=self.mlp_dim[-1],
+                                     out_channels=self.mlp_dim[-1],
+                                     kernel_size=(self.num_keypoints, 1))
+        
+        final_layers = []
+        for lid in range(len(self.final_dim)):
+            if lid == 0:
+                final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
+            else:
+                final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
+        
+        self.pose_branch = None
+        pose_branch = []
+        for lid in range(len(extra['pose_branch_dim'])):
+            if lid == 0:
+                pose_branch.append(nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
+            else:
+                pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
+                                                extra['pose_branch_dim'][lid]))
+        pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
+        self.pose_branch = nn.Sequential(*pose_branch)
+        
+        self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
+        self.root_branch = nn.Sequential(
+            nn.Linear(extra['global_feat_dim'], extra['global_feat_dim']),
+            nn.Linear(extra['global_feat_dim'], 3))
+        
+        if len(final_layers) > 1:
+            self.final_layers = nn.Sequential(*final_layers)
+        else:
+            self.final_layers = final_layers[0]
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -129,6 +174,7 @@ class Topdown3DGCNHead(nn.Module):
 
     def forward(self, x, heatmap, img_metas):
         """Forward function."""
+        global_feat = x[3]
         x = x[0]
         bbox = self.get_bbox(img_metas)
         keypoint, keyIdx = self.get_keypoint(heatmap)
@@ -142,7 +188,17 @@ class Topdown3DGCNHead(nn.Module):
                 featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
                 
         keyemb = torch.cat([posemb, featemb], dim=2)
-        key3d = self.sem_gcn(keyemb)
+        keyemb = keyemb.permute(0, 2, 1)
+        keyemb = self.mlp_layers(keyemb)
+        keyemb = keyemb[:, :, :, None]
+        keyemb = self.merge_layer(keyemb)
+        keyemb = torch.flatten(keyemb, start_dim=1)
+        key3d = self.final_layers(keyemb)
+        pose3d = self.pose_branch(key3d)
+        global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
+        root3d = self.root_branch(global_feat)
+        key3d = torch.cat([root3d, pose3d], dim=1)
+        key3d = key3d.view(-1, self.num_keypoints, 3)
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
@@ -284,7 +340,7 @@ class Topdown3DGCNHead(nn.Module):
             target_mean = np.stack([m['target_3d_mean'] for m in img_metas])
             target_std = np.stack([m['target_3d_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
-
+        
         if self.test_cfg.get('restore_global_position', False):
             output = output[:, 1:, :]
             root_pos = np.stack([m['root_position'] for m in img_metas])
@@ -328,7 +384,7 @@ class Topdown3DGCNHead(nn.Module):
         if root_idx is not None:
             x = np.insert(x, root_idx, root_pos.squeeze(1), axis=1)
         return x
-
+    
     @staticmethod
     def _restore_root_target_weight(target_weight, root_weight, root_idx=None):
         """Restore the target weight of the root joint after the restoration of
@@ -353,5 +409,20 @@ class Topdown3DGCNHead(nn.Module):
         for _, m in self.posemb_layers.named_modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001)
+            elif isinstance(m, nn.BatchNorm2d):
+                constant_init(m, 1)
+        for m in self.merge_layer.modules():
+            if isinstance(m, nn.Conv2d):
+                normal_init(m, std=0.001, bias=0)
+            elif isinstance(m, nn.BatchNorm2d):
+                constant_init(m, 1)
+        for m in self.mlp_layers.modules():
+            if isinstance(m, nn.Conv1d):
+                normal_init(m, std=0.001, bias=0)
+            elif isinstance(m, nn.BatchNorm2d):
+                constant_init(m, 1)
+        for m in self.final_layers.modules():
+            if isinstance(m, nn.Linear):
+                normal_init(m, std=0.001, bias=0)
             elif isinstance(m, nn.BatchNorm2d):
                 constant_init(m, 1)

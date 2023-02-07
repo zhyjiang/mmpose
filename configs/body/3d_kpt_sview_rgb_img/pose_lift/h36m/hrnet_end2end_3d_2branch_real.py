@@ -62,7 +62,7 @@ model = dict(
                 block='BASIC',
                 num_blocks=(4, 4, 4, 4),
                 num_channels=(32, 64, 128, 256),
-                multiscale_output=True))),
+                multiscale_output=True)),
     ),
     keypoint_head=dict(
         type='TopdownHeatmapSimpleHead',
@@ -72,13 +72,14 @@ model = dict(
         extra=dict(final_conv_kernel=1, ),
         loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=10)),
     keypoint3d_head=dict(
-        type='Topdown3DHead',
+        type='Topdown3D2BranchHead',
         in_channels=32,
         posemb_dim=[32, 64],
         mlp_dim=[128, 256],
         final_dim=[512, 1024, 1024],
         extra=dict(
-            root_branch_dim=[256, 64],
+            global_feat_size=[8, 8],
+            global_feat_dim=256,
             pose_branch_dim=[512, 256]
         ),
         loss_keypoint=dict(type='L1Loss', use_target_weight=True)
@@ -138,6 +139,7 @@ joint_2d_normalize_param = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownRandomFlip', flip_prob=0.5),
     dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
@@ -157,6 +159,13 @@ train_pipeline = [
         item='target_3d',
         mean=joint_3d_normalize_param['mean'],
         std=joint_3d_normalize_param['std']),
+    dict(
+        type='Joint3DFlip',
+        item=['target_3d'],
+        flip_cfg=[
+            dict(center_mode='static', center_x=0.)
+        ],
+        visible_item=['target_weight']),
     dict(
         type='Collect',
         keys=['img', 'target_3d', 'target', 'target_weight'],

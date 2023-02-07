@@ -182,6 +182,7 @@ class Topdown3DHead(nn.Module):
 
     def forward(self, x, heatmap, img_metas):
         """Forward function."""
+        x = x[0]
         bbox = self.get_bbox(img_metas)
         keypoint, keyIdx = self.get_keypoint(heatmap)
         

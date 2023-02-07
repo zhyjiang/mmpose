@@ -41,6 +41,7 @@ class TopDown3D(BasePose):
                  keypoint3d_head=None,
                  train_cfg=None,
                  test_cfg=None,
+                 fix_keypoint_head=False,
                  pretrained=None,
                  inference3d=True,
                  loss_pose=None,
@@ -53,6 +54,7 @@ class TopDown3D(BasePose):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
         self.inference3d = inference3d
+        self.fix_keypoint_head = fix_keypoint_head
 
         if neck is not None:
             self.neck = builder.build_neck(neck)
@@ -177,7 +179,13 @@ class TopDown3D(BasePose):
             output = self.neck(output)
         if self.with_keypoint:
             heatmap = self.keypoint_head(output)
-            pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
+            if self.fix_keypoint_head:
+                output[0] = output[0].detach()
+                output[3] = output[3].detach()
+                pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas)
+                # pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
+            else:
+                pose3d = self.keypoint3d_head(output, heatmap, img_metas)
 
         # if return loss
         losses = dict()

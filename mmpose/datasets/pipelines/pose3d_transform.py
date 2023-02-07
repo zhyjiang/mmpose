@@ -370,7 +370,53 @@ class CameraProjection:
 
         results[output_name] = output
         return results
+    
 
+@PIPELINES.register_module()
+class Joint3DFlip:
+    def __init__(self,
+                 item,
+                 flip_cfg,
+                 visible_item=None):
+        self.item = item
+        self.flip_cfg = flip_cfg
+        self.vis_item = visible_item
+    
+    def __call__(self, results):
+    
+        if results.get(f'{self.item}_root_removed', False):
+            raise RuntimeError('The transform RelativeJointRandomFlip should '
+                               f'not be applied to {self.item} whose root '
+                               'joint has been removed and joint indices have '
+                               'been changed')
+
+        if results.get('flipped', False):
+    
+            flip_pairs = results['ann_info']['flip_pairs']
+
+            # flip joint coordinates
+            for i, item in enumerate(self.item):
+                assert item in results
+                joints = results[item]
+
+                joints_flipped = fliplr_regression(joints, flip_pairs,
+                                                   **self.flip_cfg[i])
+
+                results[item] = joints_flipped
+
+            # flip joint visibility
+            for vis_item in self.vis_item:
+                assert vis_item in results
+                visible = results[vis_item]
+                visible_flipped = visible.copy()
+                for left, right in flip_pairs:
+                    visible_flipped[..., left, :] = visible[..., right, :]
+                    visible_flipped[..., right, :] = visible[..., left, :]
+                results[vis_item] = visible_flipped
+            
+            results['bbox'][0] = results['image_width'] - results['bbox'][0] - results['bbox'][2]
+                
+        return results
 
 @PIPELINES.register_module()
 class RelativeJointRandomFlip:
