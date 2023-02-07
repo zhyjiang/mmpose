@@ -219,7 +219,7 @@ class TopDown3D(BasePose):
         if self.with_keypoint:
             output_heatmap = self.keypoint_head(features)
             output_pose3d = self.keypoint3d_head.inference_model(
-                features[0], output_heatmap, img_metas)
+                features, output_heatmap, img_metas)
             output_heatmap = output_heatmap.cpu().numpy()
 
         if self.with_keypoint:
