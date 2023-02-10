@@ -120,7 +120,7 @@ class Topdown3D2BranchHead(nn.Module):
         
         self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
         self.root_branch = nn.Sequential(
-            nn.Linear(extra['global_feat_dim'], extra['global_feat_dim']),
+            nn.Linear(extra['global_feat_dim'] + self.posemb_dim[-1], extra['global_feat_dim']),
             nn.Linear(extra['global_feat_dim'], 3))
         
         if len(final_layers) > 1:
@@ -176,6 +176,7 @@ class Topdown3D2BranchHead(nn.Module):
         """Forward function."""
         global_feat = x[3]
         x = x[0]
+        root_idx = img_metas[0].get('root_position_index', None)
         bbox = self.get_bbox(img_metas)
         keypoint, keyIdx = self.get_keypoint(heatmap)
         
@@ -196,6 +197,7 @@ class Topdown3D2BranchHead(nn.Module):
         key3d = self.final_layers(keyemb)
         pose3d = self.pose_branch(key3d)
         global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
+        global_feat = torch.cat([posemb[:, root_idx, :], global_feat], dim=1)
         root3d = self.root_branch(global_feat)
         key3d = torch.cat([root3d, pose3d], dim=1)
         key3d = key3d.view(-1, self.num_keypoints, 3)

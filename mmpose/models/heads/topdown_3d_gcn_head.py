@@ -56,6 +56,7 @@ class Topdown3DGCNHead(nn.Module):
                  num_layers=4,
                  p_dropout=0.15,
                  loss_keypoint=None,
+                 extra=None,
                  train_cfg=None,
                  test_cfg=None):
         super().__init__()
@@ -79,9 +80,18 @@ class Topdown3DGCNHead(nn.Module):
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
             self.posemb_layers = posemb_layers[0]
-                
+        
+        if extra.get('root_branch', False):
+            self.root_branch = True
+            self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
+            self.root_branch = nn.Sequential(
+                nn.Linear(extra['global_feat_dim'] + posemb_dim[-1], extra['global_feat_dim']),
+                nn.Linear(extra['global_feat_dim'], 3))
+        else:
+            self.root_branch = False
+            
         self.sem_gcn = SemGCN(self.num_keypoints, hid_dim, coords_dim=(posemb_dim[-1] + in_channels, 3), 
-                              num_layers=num_layers, p_dropout=p_dropout)
+                            num_layers=num_layers, p_dropout=p_dropout)
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -129,8 +139,10 @@ class Topdown3DGCNHead(nn.Module):
 
     def forward(self, x, heatmap, img_metas):
         """Forward function."""
+        global_feat = x[3]
         x = x[0]
         bbox = self.get_bbox(img_metas)
+        root_idx = img_metas[0].get('root_position_index', None)
         keypoint, keyIdx = self.get_keypoint(heatmap)
         
         posemb = torch.cat([keypoint, bbox], dim=2)
@@ -143,6 +155,10 @@ class Topdown3DGCNHead(nn.Module):
                 
         keyemb = torch.cat([posemb, featemb], dim=2)
         key3d = self.sem_gcn(keyemb)
+        global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
+        global_feat = torch.cat([posemb[:, root_idx, :], global_feat], dim=1)
+        root3d = self.root_branch(global_feat)
+        key3d[:, root_idx, :] = key3d[:, root_idx, :] + root3d
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
