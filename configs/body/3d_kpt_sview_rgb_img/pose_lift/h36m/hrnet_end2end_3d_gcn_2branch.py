@@ -65,7 +65,7 @@ model = dict(
                 num_channels=(32, 64, 128, 256),
                 multiscale_output=True)),
     ),
-    fix_keypoint_head=True,
+    # fix_keypoint_head=True,
     keypoint_head=dict(
         type='TopdownHeatmapSimpleHead',
         in_channels=32,
