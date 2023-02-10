@@ -81,12 +81,13 @@ class Topdown3DGCNHead(nn.Module):
         else:
             self.posemb_layers = posemb_layers[0]
         
-        if extra.get('root_branch', False):
-            self.root_branch = True
-            self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
-            self.root_branch = nn.Sequential(
-                nn.Linear(extra['global_feat_dim'] + posemb_dim[-1], extra['global_feat_dim']),
-                nn.Linear(extra['global_feat_dim'], 3))
+        if extra is not None:
+            if extra.get('root_branch', False):
+                self.root_branch = True
+                self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
+                self.root_branch = nn.Sequential(
+                    nn.Linear(extra['global_feat_dim'] + posemb_dim[-1], extra['global_feat_dim']),
+                    nn.Linear(extra['global_feat_dim'], 3))
         else:
             self.root_branch = False
             
@@ -158,7 +159,7 @@ class Topdown3DGCNHead(nn.Module):
         global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
         global_feat = torch.cat([posemb[:, root_idx, :], global_feat], dim=1)
         root3d = self.root_branch(global_feat)
-        key3d[:, root_idx, :] = key3d[:, root_idx, :] + root3d
+        key3d[:, root_idx, :] = root3d
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
