@@ -47,6 +47,7 @@ def main():
 
     skeletons = gt_json['categories'][0]['skeleton']
     mpjpe = []
+    root_mpjpe = []
     for i in range(10):
         ax = plt.axes(projection='3d')
         # ax.view_init(elev=0, azim=0)
@@ -83,11 +84,13 @@ def main():
             ax.plot([keypoints[skeleton[0], 0], keypoints[skeleton[1], 0]],
                     [keypoints[skeleton[0], 2], keypoints[skeleton[1], 2]],
                     [-keypoints[skeleton[0], 1], -keypoints[skeleton[1], 1]], 'b')
-            
+        
         mpjpe.append(np.average(np.linalg.norm(keypoints - gt_keypoints, axis=1)))
+        root_mpjpe.append(np.average(np.linalg.norm(keypoints - gt_keypoints - keypoints[0:1] + gt_keypoints[0:1], axis=1)))
         plt.savefig(os.path.join(args.out, 'compare_{}.jpg'.format(i)))
         
     print('mpjpe: ', np.average(mpjpe) * 1000)
+    print('root mpjpe: ', np.average(root_mpjpe) * 1000)
     
 if __name__ == '__main__':
     main()
