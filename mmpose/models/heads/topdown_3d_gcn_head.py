@@ -164,7 +164,7 @@ class Topdown3DGCNHead(nn.Module):
                                                     keyIdx[i, j, 0]-1:keyIdx[i, j, 0]+2],
                                               dim=(1, 2))
                 else:
-                    featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]],
+                    featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
         
         posemb = posemb.squeeze().permute(0, 2, 1)
         keyemb = torch.cat([posemb, featemb], dim=2)
