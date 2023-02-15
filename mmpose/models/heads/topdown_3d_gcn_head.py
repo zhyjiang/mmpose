@@ -73,9 +73,10 @@ class Topdown3DGCNHead(nn.Module):
         posemb_layers = []
         for lid in range(len(self.posemb_dim)):
             if lid == 0:
-                posemb_layers.append(nn.Linear(6, self.posemb_dim[lid]))
+                posemb_layers.append(nn.Conv2d(1, self.posemb_dim[lid], kernel_size=(1, 6)))
             else:
-                posemb_layers.append(nn.Linear(self.posemb_dim[lid-1], self.posemb_dim[lid]))
+                posemb_layers.append(nn.Conv2d(self.posemb_dim[lid-1], self.posemb_dim[lid], kernel_size=(1, 1)))
+            posemb_layers.append(nn.BatchNorm2d(self.posemb_dim[lid], momentum=0.1))
         if len(posemb_layers) > 1:
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
@@ -87,9 +88,12 @@ class Topdown3DGCNHead(nn.Module):
                 self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
                 self.root_branch = nn.Sequential(
                     nn.Linear(extra['global_feat_dim'] + posemb_dim[-1], extra['global_feat_dim']),
+                    nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
                     nn.Linear(extra['global_feat_dim'], 3))
+            self.pool_feature = extra.get('pool_feature', False)
         else:
             self.root_branch = False
+            self.pool_feature = False
             
         self.sem_gcn = SemGCN(self.num_keypoints, hid_dim, coords_dim=(posemb_dim[-1] + in_channels, 3), 
                             num_layers=num_layers, p_dropout=p_dropout)
@@ -147,13 +151,22 @@ class Topdown3DGCNHead(nn.Module):
         keypoint, keyIdx = self.get_keypoint(heatmap)
         
         posemb = torch.cat([keypoint, bbox], dim=2)
+        posemb = posemb[:, None, :, :]
         posemb = self.posemb_layers(posemb)
         
         featemb = torch.zeros((heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
         for i in range(heatmap.shape[0]):
             for j in range(heatmap.shape[1]):
-                featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
-                
+                if self.pool_feature:
+                    featemb[i, j, :] = torch.mean(x[i, 
+                                                    :, 
+                                                    keyIdx[i, j, 1]-1:keyIdx[i, j, 1]+2, 
+                                                    keyIdx[i, j, 0]-1:keyIdx[i, j, 0]+2],
+                                              dim=(1, 2))
+                else:
+                    featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]],
+        
+        posemb = posemb.squeeze().permute(0, 2, 1)
         keyemb = torch.cat([posemb, featemb], dim=2)
         key3d = self.sem_gcn(keyemb)
         global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
@@ -240,9 +253,9 @@ class Topdown3DGCNHead(nn.Module):
         bbox = np.zeros((len(img_metas), 4))
         for i in range(len(img_metas)):
             bbox[i] = img_metas[i]['bbox']
-            bbox[i, 0::2] /= img_metas[i]['image_width']
-            bbox[i, 1::2] /= img_metas[i]['image_height'] 
-            bbox[i, :2] = bbox[i, :2] * 2 - 1
+            bbox[i, 0::2] /= img_metas[i]['image_width'] / 2
+            bbox[i, 1::2] /= img_metas[i]['image_height'] / 2
+            bbox[i, :2] = bbox[i, :2] - 1 + bbox[i, 2:] / 2
         bbox = torch.FloatTensor(bbox).cuda()[:, None, :]
         bbox = bbox.repeat(1, self.num_keypoints, 1)
         return bbox

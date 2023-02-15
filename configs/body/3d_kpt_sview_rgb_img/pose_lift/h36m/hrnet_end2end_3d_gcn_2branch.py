@@ -65,22 +65,23 @@ model = dict(
                 num_channels=(32, 64, 128, 256),
                 multiscale_output=True)),
     ),
-    # fix_keypoint_head=True,
+    fix_keypoint_head=True,
     keypoint_head=dict(
         type='TopdownHeatmapSimpleHead',
         in_channels=32,
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
         extra=dict(final_conv_kernel=1, ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=100)),
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=0)),
     keypoint3d_head=dict(
         type='Topdown3DGCNHead',
         in_channels=32,
-        posemb_dim=[32, 64],
+        posemb_dim=[64, 64],
         extra=dict(
             root_branch=True,
             global_feat_size=[8, 8],
             global_feat_dim=256,
+            # pool_feature=True,
         ),
         loss_keypoint=dict(type='L1Loss', use_target_weight=True)
     ),
