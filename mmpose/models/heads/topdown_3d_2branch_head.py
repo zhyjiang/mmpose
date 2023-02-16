@@ -69,13 +69,15 @@ class Topdown3D2BranchHead(nn.Module):
         self.posemb_dim = posemb_dim
         self.mlp_dim = mlp_dim
         self.final_dim = final_dim
+        self.extra = extra
         
         posemb_layers = []
         for lid in range(len(self.posemb_dim)):
             if lid == 0:
-                posemb_layers.append(nn.Linear(6, self.posemb_dim[lid]))
+                posemb_layers.append(nn.Conv2d(1, self.posemb_dim[lid], kernel_size=(1, 6)))
             else:
-                posemb_layers.append(nn.Linear(self.posemb_dim[lid-1], self.posemb_dim[lid]))
+                posemb_layers.append(nn.Conv2d(self.posemb_dim[lid-1], self.posemb_dim[lid], kernel_size=(1, 1)))
+            posemb_layers.append(nn.BatchNorm2d(self.posemb_dim[lid], momentum=0.1))
         if len(posemb_layers) > 1:
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
@@ -91,6 +93,7 @@ class Topdown3D2BranchHead(nn.Module):
                 mlp_layers.append(nn.Conv1d(in_channels=self.mlp_dim[lid-1], 
                                             out_channels=self.mlp_dim[lid],
                                             kernel_size=1))
+            mlp_layers.append(nn.BatchNorm1d(self.mlp_dim[lid], momentum=0.1))
         if len(mlp_layers) > 1:
             self.mlp_layers = nn.Sequential(*mlp_layers)
         else:
@@ -106,6 +109,12 @@ class Topdown3D2BranchHead(nn.Module):
                 final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
             else:
                 final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
+            final_layers.append(nn.BatchNorm1d(self.final_dim[lid], momentum=0.1))
+            
+        if len(final_layers) > 1:
+            self.final_layers = nn.Sequential(*final_layers)
+        else:
+            self.final_layers = final_layers[0]
         
         self.pose_branch = None
         pose_branch = []
@@ -115,18 +124,15 @@ class Topdown3D2BranchHead(nn.Module):
             else:
                 pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
                                                 extra['pose_branch_dim'][lid]))
+            pose_branch.append(nn.BatchNorm1d(self.extra['pose_branch_dim'][lid], momentum=0.1))
         pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
         self.pose_branch = nn.Sequential(*pose_branch)
         
         self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
         self.root_branch = nn.Sequential(
             nn.Linear(extra['global_feat_dim'] + self.posemb_dim[-1], extra['global_feat_dim']),
+            nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
             nn.Linear(extra['global_feat_dim'], 3))
-        
-        if len(final_layers) > 1:
-            self.final_layers = nn.Sequential(*final_layers)
-        else:
-            self.final_layers = final_layers[0]
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -181,13 +187,15 @@ class Topdown3D2BranchHead(nn.Module):
         keypoint, keyIdx = self.get_keypoint(heatmap)
         
         posemb = torch.cat([keypoint, bbox], dim=2)
+        posemb = posemb[:, None, :, :]
         posemb = self.posemb_layers(posemb)
         
         featemb = torch.zeros((heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
         for i in range(heatmap.shape[0]):
             for j in range(heatmap.shape[1]):
                 featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
-                
+        
+        posemb = posemb.squeeze(dim=-1).permute(0, 2, 1)
         keyemb = torch.cat([posemb, featemb], dim=2)
         keyemb = keyemb.permute(0, 2, 1)
         keyemb = self.mlp_layers(keyemb)
@@ -242,6 +250,11 @@ class Topdown3D2BranchHead(nn.Module):
             target_ = self._denormalize_joints(target_, target_mean,
                                                target_std)
 
+        output_root = output_[:, :1]
+        target_root = target_[:, :1]
+        output_ = output_[:, 1:]
+        target_ = target_[:, 1:]
+
         # Restore global position
         if self.test_cfg.get('restore_global_position', False):
             root_pos = np.stack([m['root_position'] for m in metas])
@@ -261,6 +274,7 @@ class Topdown3D2BranchHead(nn.Module):
                 target_weight_ = self._restore_root_target_weight(
                     target_weight_, root_weight, root_idx)
 
+        target_weight_ = target_weight_[:, 1:]
         mpjpe = np.mean(
             np.linalg.norm((output_ - target_) * target_weight_, axis=-1))
 
@@ -271,8 +285,11 @@ class Topdown3D2BranchHead(nn.Module):
         p_mpjpe = np.mean(
             np.linalg.norm(
                 (transformed_output - target_) * target_weight_, axis=-1))
-
+        
+        root_mpjpe = np.mean(np.linalg.norm(output_root - target_root, axis=-1))
+        
         accuracy['mpjpe'] = output.new_tensor(mpjpe)
+        accuracy['root mpjpe'] = output.new_tensor(root_mpjpe)
         accuracy['p_mpjpe'] = output.new_tensor(p_mpjpe)
 
         return accuracy
