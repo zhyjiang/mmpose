@@ -4,6 +4,16 @@ _base_ = [
 ]
 evaluation = dict(interval=2, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
 
+checkpoint_config = dict(interval=4)
+
+log_config = dict(
+    interval=50,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook')
+        # dict(type='PaviLoggerHook') # for internal services
+    ])
+
 # optimizer settings
 optimizer = dict(
     type='Adam',
@@ -31,9 +41,10 @@ channel_cfg = dict(
     ])
 
 # model settings
+load_from = 'best_PCK_epoch_60.pth'
 model = dict(
     type='TopDown3D',
-    pretrained='checkpoint/hrnet_w32_h36m_256x256-d3206675_20210621.pth',
+    pretrained=None,
     backbone=dict(
         type='HRNet',
         in_channels=3,
@@ -70,7 +81,8 @@ model = dict(
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
         extra=dict(final_conv_kernel=1, ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=10)),
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=0)),
+    fix_keypoint_head=True,
     keypoint3d_head=dict(
         type='Topdown3D2BranchHead',
         in_channels=32,
@@ -90,7 +102,6 @@ model = dict(
         heatmap_size=[64, 64],
         flip_test=False,
         post_process='default',
-        restore_global_position=True,
         shift_heatmap=True,
         modulate_kernel=11))
 
@@ -208,11 +219,30 @@ val_pipeline = [
             'center', 'scale', 'image_file'
         ])
 ]
-test_pipeline = val_pipeline
+test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    dict(type='TopDownAffine'),
+    dict(type='ToTensor'),
+    dict(
+        type='NormalizeTensor',
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]),
+    dict(
+        type='Collect',
+        keys=['img'],
+        meta_keys=[
+            'image_file', 'center', 'scale', 'rotation', 'bbox_score',
+            'flip_pairs', 'bbox', 'image_width', 'image_height',
+            'ann_info', 'root_position_index', 'target_3d_mean', 
+            'target_3d_std'
+        ])
+]
 
 data = dict(
-    samples_per_gpu=32,
-    workers_per_gpu=4,
+    samples_per_gpu=44,
+    workers_per_gpu=12,
     val_dataloader=dict(samples_per_gpu=24),
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(

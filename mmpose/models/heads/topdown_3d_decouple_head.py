@@ -12,11 +12,10 @@ from mmpose.models.builder import build_loss
 from mmpose.models.utils.ops import resize
 from ..builder import HEADS
 from .topdown_heatmap_base_head import TopdownHeatmapBaseHead
-from ..necks.sem_gcn import SemGCN
 
 
 @HEADS.register_module()
-class Topdown3DGCNHead(nn.Module):
+class Topdown3DDecoupleHead(nn.Module):
     """Top-down heatmap simple head. paper ref: Bin Xiao et al. ``Simple
     Baselines for Human Pose Estimation and Tracking``.
 
@@ -52,11 +51,10 @@ class Topdown3DGCNHead(nn.Module):
                  in_channels,
                  num_keypoints=17,
                  posemb_dim=[64],
-                 hid_dim=128,
-                 num_layers=4,
-                 p_dropout=0.15,
-                 loss_keypoint=None,
+                 mlp_dim=[128, 256],
+                 final_dim=[1024, 512],
                  extra=None,
+                 loss_keypoint=None,
                  train_cfg=None,
                  test_cfg=None):
         super().__init__()
@@ -69,6 +67,9 @@ class Topdown3DGCNHead(nn.Module):
         
         self.num_keypoints = num_keypoints
         self.posemb_dim = posemb_dim
+        self.mlp_dim = mlp_dim
+        self.final_dim = final_dim
+        self.extra = extra
         
         posemb_layers = []
         for lid in range(len(self.posemb_dim)):
@@ -76,27 +77,66 @@ class Topdown3DGCNHead(nn.Module):
                 posemb_layers.append(nn.Conv2d(1, self.posemb_dim[lid], kernel_size=(1, 6)))
             else:
                 posemb_layers.append(nn.Conv2d(self.posemb_dim[lid-1], self.posemb_dim[lid], kernel_size=(1, 1)))
-            posemb_layers.append(nn.BatchNorm2d(self.posemb_dim[lid], momentum=0.1))
+            # posemb_layers.append(nn.BatchNorm2d(self.posemb_dim[lid], momentum=0.1))
         if len(posemb_layers) > 1:
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
             self.posemb_layers = posemb_layers[0]
-        
-        if extra is not None:
-            if extra.get('root_branch', False):
-                self.root_branch = True
-                self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
-                self.root_branch = nn.Sequential(
-                    nn.Linear(posemb_dim[-1], extra['global_feat_dim']),
-                    nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
-                    nn.Linear(extra['global_feat_dim'], 3))
-            self.pool_feature = extra.get('pool_feature', False)
+                
+        mlp_layers = []
+        for lid in range(len(self.mlp_dim)):
+            if lid == 0:
+                mlp_layers.append(nn.Linear(self.num_keypoints * 2, 
+                                            self.mlp_dim[lid]))
+            else:
+                mlp_layers.append(nn.Linear(self.mlp_dim[lid-1], 
+                                            self.mlp_dim[lid]))
+            mlp_layers.append(nn.BatchNorm1d(self.mlp_dim[lid], momentum=0.1))
+            mlp_layers.append(nn.ReLU())
+            mlp_layers.append(nn.Dropout(0.3))
+        if len(mlp_layers) > 1:
+            self.mlp_layers = nn.Sequential(*mlp_layers)
         else:
-            self.root_branch = False
-            self.pool_feature = False
-            
-        self.sem_gcn = SemGCN(self.num_keypoints, hid_dim, coords_dim=(posemb_dim[-1], 3), 
-                            num_layers=num_layers, p_dropout=p_dropout)
+            self.mlp_layers = mlp_layers[0]
+        
+        final_layers = []
+        for lid in range(len(self.final_dim)):
+            if lid == 0:
+                final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
+            else:
+                final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
+            final_layers.append(nn.BatchNorm1d(self.final_dim[lid], momentum=0.1))
+            final_layers.append(nn.ReLU())
+            final_layers.append(nn.Dropout(0.3))
+        
+        final_layers.append(nn.Linear(self.final_dim[-1], (self.num_keypoints - 1) * 3))
+        if len(final_layers) > 1:
+            self.final_layers = nn.Sequential(*final_layers)
+        else:
+            self.final_layers = final_layers[0]
+        
+        # self.pose_branch = None
+        # pose_branch = []
+        # for lid in range(len(extra['pose_branch_dim'])):
+        #     if lid == 0:
+        #         pose_branch.append(nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
+        #     else:
+        #         pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
+        #                                         extra['pose_branch_dim'][lid]))
+        #     # pose_branch.append(nn.BatchNorm1d(self.extra['pose_branch_dim'][lid], momentum=0.1))
+        # pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
+        # self.pose_branch = nn.Sequential(*pose_branch)
+        
+        self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
+        self.root_branch = nn.Sequential(
+            nn.Linear(extra['global_feat_dim'] + self.posemb_dim[-1], extra['global_feat_dim']),
+            # nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
+            nn.Linear(extra['global_feat_dim'], 3))
+        
+        self.scale_branch = nn.Sequential(
+            nn.Linear(extra['global_feat_dim'] + self.posemb_dim[-1], extra['global_feat_dim']),
+            # nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
+            nn.Linear(extra['global_feat_dim'], 1))
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -144,46 +184,29 @@ class Topdown3DGCNHead(nn.Module):
 
     def forward(self, x, heatmap, img_metas):
         """Forward function."""
-        global_feat = x[3]
-        x = x[0]
-        bbox = self.get_bbox(img_metas)
-        root_idx = img_metas[0].get('root_position_index', None)
-        keypoint, keyIdx = self.get_keypoint(heatmap)
+        # global_feat = x[3]
+        # x = x[0]
+        # root_idx = img_metas[0].get('root_position_index', None)
+        # bbox = self.get_bbox(img_metas)
+        keypoint, keyIdx = self.get_keypoint(heatmap, img_metas)
         
-        posemb = torch.cat([keypoint, bbox], dim=2)
-        posemb = posemb[:, None, :, :]
-        posemb = self.posemb_layers(posemb)
+        # posemb = torch.cat([keypoint, bbox], dim=2)
+        # posemb = posemb[:, None, :, :]
+        # posemb = self.posemb_layers(posemb)
         
-        # featemb = torch.zeros((heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
-        # for i in range(heatmap.shape[0]):
-        #     for j in range(heatmap.shape[1]):
-        #         if self.pool_feature:
-        #             if keyIdx[i, j, 1] == 0:
-        #                 keyIdx[i, j, 1] = keyIdx[i, j, 1] + 1
-        #             if keyIdx[i, j, 0] == 0:
-        #                 keyIdx[i, j, 0] = keyIdx[i, j, 0] + 1
-        #             if keyIdx[i, j, 1] == heatmap.shape[2] - 1:
-        #                 keyIdx[i, j, 1] = keyIdx[i, j, 1] - 1
-        #             if keyIdx[i, j, 0] == heatmap.shape[3] - 1:
-        #                 keyIdx[i, j, 0] = keyIdx[i, j, 0] - 1
-                        
-        #             featemb[i, j, :] = torch.mean(x[i, 
-        #                                             :, 
-        #                                             keyIdx[i, j, 1]-1:keyIdx[i, j, 1]+2, 
-        #                                             keyIdx[i, j, 0]-1:keyIdx[i, j, 0]+2],
-        #                                       dim=(1, 2))
-        #         else:
-        #             featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
+        keypoint = torch.flatten(keypoint, start_dim=1)
         
-        posemb = posemb.squeeze(dim=-1).permute(0, 2, 1)
-        # keyemb = torch.cat([posemb, featemb], dim=2)
-        keyemb = posemb
-        key3d = self.sem_gcn(keyemb)
-        global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
+        # posemb = posemb.squeeze(dim=-1).permute(0, 2, 1)
+        keyemb = self.mlp_layers(keypoint)
+        key3d = self.final_layers(keyemb)
+        # pose3d = self.pose_branch(key3d)
+        # global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
         # global_feat = torch.cat([posemb[:, root_idx, :], global_feat], dim=1)
-        global_feat = posemb[:, root_idx, :]
-        root3d = self.root_branch(global_feat)
-        key3d[:, root_idx, :] = root3d
+        # root3d = self.root_branch(global_feat)
+        # scale = self.scale_branch(global_feat)
+        # pose3d = pose3d * scale
+        # key3d = torch.cat([root3d, key3d], dim=1)
+        key3d = key3d.view(-1, self.num_keypoints-1, 3)
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
@@ -231,23 +254,23 @@ class Topdown3DGCNHead(nn.Module):
         target_ = target_[:, 1:]
 
         # Restore global position
-        if self.test_cfg.get('restore_global_position', False):
-            root_pos = np.stack([m['root_position'] for m in metas])
-            root_idx = metas[0].get('root_position_index', None)
-            output_ = self._restore_global_position(output_, root_pos,
-                                                    root_idx)
-            target_ = self._restore_global_position(target_, root_pos,
-                                                    root_idx)
+        # if self.test_cfg.get('restore_global_position', False):
+        #     root_pos = np.stack([m['root_position'] for m in metas])
+        #     root_idx = metas[0].get('root_position_index', None)
+        #     output_ = self._restore_global_position(output_, root_pos,
+        #                                             root_idx)
+        #     target_ = self._restore_global_position(target_, root_pos,
+        #                                             root_idx)
         # Get target weight
         if target_weight is None:
             target_weight_ = np.ones_like(target_)
         else:
             target_weight_ = target_weight.detach().cpu().numpy()
-            if self.test_cfg.get('restore_global_position', False):
-                root_idx = metas[0].get('root_position_index', None)
-                root_weight = metas[0].get('root_joint_weight', 1.0)
-                target_weight_ = self._restore_root_target_weight(
-                    target_weight_, root_weight, root_idx)
+            # if self.test_cfg.get('restore_global_position', False):
+            #     root_idx = metas[0].get('root_position_index', None)
+            #     root_weight = metas[0].get('root_joint_weight', 1.0)
+            #     target_weight_ = self._restore_root_target_weight(
+            #         target_weight_, root_weight, root_idx)
 
         target_weight_ = target_weight_[:, 1:]
         mpjpe = np.mean(
@@ -273,24 +296,29 @@ class Topdown3DGCNHead(nn.Module):
         bbox = np.zeros((len(img_metas), 4))
         for i in range(len(img_metas)):
             bbox[i] = img_metas[i]['bbox']
-            bbox[i, 0::2] /= img_metas[i]['image_width'] / 2
-            bbox[i, 1::2] /= img_metas[i]['image_height'] / 2
-            bbox[i, :2] = bbox[i, :2] - 1 + bbox[i, 2:] / 2
+            bbox[i, 0::2] /= img_metas[i]['image_width']
+            bbox[i, 1::2] /= img_metas[i]['image_height'] 
+            bbox[i, :2] = bbox[i, :2] * 2 - 1
         bbox = torch.FloatTensor(bbox).cuda()[:, None, :]
         bbox = bbox.repeat(1, self.num_keypoints, 1)
         return bbox
 
-    def get_keypoint(self, heatmap):
-        heatmap = torch.flatten(heatmap, start_dim=2)
-        keypoint = torch.zeros((heatmap.shape[0], heatmap.shape[1], 2)).cuda().long()
-        key_loc = torch.argmax(heatmap, dim=2).long()
-        keypoint[:, :, 0] = key_loc % self.train_cfg['heatmap_size'][1]
-        keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
+    def get_keypoint(self, heatmap, img_metas):
+        # heatmap = torch.flatten(heatmap, start_dim=2)
+        keypoint = torch.zeros((len(img_metas), 17, 2)).cuda().long()
+        # key_loc = torch.argmax(heatmap, dim=2).long()
+        # keypoint[:, :, 0] = key_loc % self.train_cfg['heatmap_size'][1]
+        # keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
         
         keyIdx = keypoint.cpu().numpy()
         keypoint = keypoint.float()
-        keypoint[:, :, 0] = keypoint[:, :, 0] / self.train_cfg['heatmap_size'][1] * 2 - 1
-        keypoint[:, :, 1] = keypoint[:, :, 1] / self.train_cfg['heatmap_size'][0] * 2 - 1
+        for i in range(len(img_metas)):
+            # keypoint[i, :, 0] = (keypoint[i, :, 0] / self.train_cfg['heatmap_size'][1] * img_metas[i]['bbox'][2] + 
+            #                      img_metas[i]['bbox'][0]) / img_metas[i]['image_height'] * 2 - 1
+            # keypoint[i, :, 1] = (keypoint[i, :, 1] / self.train_cfg['heatmap_size'][0] * img_metas[i]['bbox'][3] + 
+            #                      img_metas[i]['bbox'][1]) / img_metas[i]['image_height'] * 2 - 1
+            keypoint[i, :, 0] = torch.FloatTensor(img_metas[i]['input_2d'][0, :, 0]).cuda() / img_metas[i]['image_height'] * 2 - 1
+            keypoint[i, :, 1] = torch.FloatTensor(img_metas[i]['input_2d'][0, :, 1]).cuda() / img_metas[i]['image_height'] * 2 - 1
         return keypoint, keyIdx
 
     def inference_model(self, x, heatmap, img_metas):
@@ -329,20 +357,19 @@ class Topdown3DGCNHead(nn.Module):
                 - root_index (torch.ndarray[1,]): Optional, original index of
                     the root joint before root-centering.
         """
-        # Denormalize the predicted pose
-        if 'target_3d_mean' in img_metas[0] and 'target_3d_std' in img_metas[0]:
-            target_mean = np.stack([m['target_3d_mean'] for m in img_metas])
-            target_std = np.stack([m['target_3d_std'] for m in img_metas])
-            output = self._denormalize_joints(output, target_mean, target_std)
-
         if self.test_cfg.get('restore_global_position', False):
-            output = output[:, 1:, :]
             root_pos = np.stack([m['root_position'] for m in img_metas])
             root_idx = img_metas[0].get('root_position_index', None)
             output = self._restore_global_position(output, root_pos, root_idx)
         else:
             output = output + output[:, img_metas[0]['root_position_index']:img_metas[0]['root_position_index'] + 1, :]
             output[:, img_metas[0]['root_position_index'], :] /= 2.0
+            
+        # Denormalize the predicted pose
+        if 'target_3d_mean' in img_metas[0] and 'target_3d_std' in img_metas[0]:
+            target_mean = np.stack([m['target_3d_mean'] for m in img_metas])
+            target_std = np.stack([m['target_3d_std'] for m in img_metas])
+            output = self._denormalize_joints(output, target_mean, target_std)
             
         target_image_paths = [m.get('target_image_path', None) for m in img_metas]
         result = {'preds': output, 'target_image_paths': target_image_paths}
@@ -378,7 +405,7 @@ class Topdown3DGCNHead(nn.Module):
         if root_idx is not None:
             x = np.insert(x, root_idx, root_pos.squeeze(1), axis=1)
         return x
-
+    
     @staticmethod
     def _restore_root_target_weight(target_weight, root_weight, root_idx=None):
         """Restore the target weight of the root joint after the restoration of
@@ -403,5 +430,15 @@ class Topdown3DGCNHead(nn.Module):
         for _, m in self.posemb_layers.named_modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001)
+            elif isinstance(m, nn.BatchNorm2d):
+                constant_init(m, 1)
+        for m in self.mlp_layers.modules():
+            if isinstance(m, nn.Conv1d):
+                normal_init(m, std=0.001, bias=0)
+            elif isinstance(m, nn.BatchNorm2d):
+                constant_init(m, 1)
+        for m in self.final_layers.modules():
+            if isinstance(m, nn.Linear):
+                normal_init(m, std=0.001, bias=0)
             elif isinstance(m, nn.BatchNorm2d):
                 constant_init(m, 1)

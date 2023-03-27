@@ -178,13 +178,19 @@ class Topdown3D2BranchHead(nn.Module):
 
         return mpjpe
 
-    def forward(self, x, heatmap, img_metas):
+    def forward(self, x, heatmap, img_metas, key2d):
         """Forward function."""
         global_feat = x[3]
         x = x[0]
         root_idx = img_metas[0].get('root_position_index', None)
         bbox = self.get_bbox(img_metas)
-        keypoint, keyIdx = self.get_keypoint(heatmap)
+        _, keyIdx = self.get_keypoint(heatmap)
+        keypoint = torch.FloatTensor(key2d[:, :, :2]).cuda()
+        h = img_metas[0]['image_height']
+        w = img_metas[0]['image_width']
+        keypoint = keypoint / w * 2
+        keypoint[:, :, 0] -= 1
+        keypoint[:, :, 1] -= h/w
         
         posemb = torch.cat([keypoint, bbox], dim=2)
         posemb = posemb[:, None, :, :]
@@ -318,7 +324,7 @@ class Topdown3D2BranchHead(nn.Module):
         keypoint[:, :, 1] = keypoint[:, :, 1] / self.train_cfg['heatmap_size'][0] * 2 - 1
         return keypoint, keyIdx
 
-    def inference_model(self, x, heatmap, img_metas):
+    def inference_model(self, x, heatmap, img_metas, key2d):
         """Inference function.
 
         Returns:
@@ -329,7 +335,7 @@ class Topdown3D2BranchHead(nn.Module):
             heatmap (torch.Tensor[N,K,H,W]): Heatmap from the 2D head.
             img_metas (List): Label info.
         """
-        output = self.forward(x, heatmap, img_metas)
+        output = self.forward(x, heatmap, img_metas, key2d)
         output_key3d = output.cpu().numpy()
         return output_key3d
     

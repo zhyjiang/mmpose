@@ -179,13 +179,17 @@ class TopDown3D(BasePose):
             output = self.neck(output)
         if self.with_keypoint:
             heatmap = self.keypoint_head(output)
+            batch_size, _, img_height, img_width = img.shape
+            keypoint_result = self.keypoint_head.decode(
+                img_metas, heatmap.detach().cpu().numpy(), img_size=[img_width, img_height])
+            key2d = keypoint_result['preds']
             if self.fix_keypoint_head:
                 output[0] = output[0].detach()
                 output[3] = output[3].detach()
-                pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas)
+                pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas, key2d)
                 # pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
             else:
-                pose3d = self.keypoint3d_head(output, heatmap, img_metas)
+                pose3d = self.keypoint3d_head(output, heatmap, img_metas, key2d)
 
         # if return loss
         losses = dict()
@@ -218,13 +222,14 @@ class TopDown3D(BasePose):
             features = self.neck(features)
         if self.with_keypoint:
             output_heatmap = self.keypoint_head(features)
+            keypoint_result = self.keypoint_head.decode(
+                img_metas, output_heatmap.cpu().numpy(), img_size=[img_width, img_height])
+            key2d = keypoint_result['preds']
             output_pose3d = self.keypoint3d_head.inference_model(
-                features, output_heatmap, img_metas)
+                features, output_heatmap, img_metas, key2d)
             output_heatmap = output_heatmap.cpu().numpy()
 
         if self.with_keypoint:
-            keypoint_result = self.keypoint_head.decode(
-                img_metas, output_heatmap, img_size=[img_width, img_height])
             result.update(keypoint_result)
             if self.inference3d:
                 result['preds2d'] = result['preds']

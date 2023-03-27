@@ -140,8 +140,8 @@ class Body3DSViewH36MDataset(Kpt3dSviewKpt2dDataset):
 
         # print(_joints_2d.shape)
         results = {
-            'input_2d': _joints_2d[:, :, :2],
-            'input_2d_visible': _joints_2d[:, :, -1:],
+            'input_2d': _joints_2d[:, :, :2].copy(),
+            'input_2d_visible': _joints_2d[:, :, -1:].copy(),
             'joints_3d': _joints_2d[target_idx, :, :2],
             'joints_3d_visible': _joints_2d[target_idx, :, -1:],
             'input_3d': _joints_3d[:, :, :3],

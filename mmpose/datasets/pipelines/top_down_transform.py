@@ -304,7 +304,10 @@ class TopDownAffine:
         joints_3d_visible = results['joints_3d_visible']
         c = results['center']
         s = results['scale']
-        r = results['rotation']
+        if 'rotation' in results.keys():
+            r = results['rotation']
+        else:
+            r = 0
 
         if self.use_udp:
             trans = get_warp_matrix(r, c * 2.0, image_size - 1.0, s * 200.0)
@@ -477,7 +480,7 @@ class TopDownGenerateTarget:
 
         if use_different_joint_weights:
             target_weight = np.multiply(target_weight, joint_weights)
-
+        target_weight = np.ones((num_joints, 1), dtype=np.float32)
         return target, target_weight
 
     def _megvii_generate_target(self, cfg, joints_3d, joints_3d_visible,

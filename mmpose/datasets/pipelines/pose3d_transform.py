@@ -75,9 +75,9 @@ class GetRootCenteredPose:
             # joint or the original joint index
             results[f'{self.item}_root_removed'] = True
 
-            # Save the root index which is necessary to restore the global pose
-            if self.root_name is not None:
-                results[f'{self.root_name}_index'] = self.root_index
+        # Save the root index which is necessary to restore the global pose
+        if self.root_name is not None:
+            results[f'{self.root_name}_index'] = self.root_index
 
         return results
 
@@ -398,11 +398,8 @@ class Joint3DFlip:
             for i, item in enumerate(self.item):
                 assert item in results
                 joints = results[item]
-
                 joints_flipped = fliplr_regression(joints, flip_pairs,
                                                    **self.flip_cfg[i])
-
-                results[item] = joints_flipped
 
             # flip joint visibility
             for vis_item in self.vis_item:
@@ -412,9 +409,12 @@ class Joint3DFlip:
                 for left, right in flip_pairs:
                     visible_flipped[..., left, :] = visible[..., right, :]
                     visible_flipped[..., right, :] = visible[..., left, :]
-                results[vis_item] = visible_flipped
             
             results['bbox'][0] = results['image_width'] - results['bbox'][0] - results['bbox'][2]
+            for left, right in flip_pairs:
+                results['input_2d'][..., left, :] = results['input_2d'][..., right, :]
+                results['input_2d'][..., right, :] = results['input_2d'][..., left, :]
+            results['input_2d'][..., 0] = results['image_width'] - results['input_2d'][..., 0]
                 
         return results
 
