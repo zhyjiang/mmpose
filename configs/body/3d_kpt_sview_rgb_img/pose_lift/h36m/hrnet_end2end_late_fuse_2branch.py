@@ -2,12 +2,22 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/h36m.py'
 ]
-evaluation = dict(interval=2, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
+evaluation = dict(interval=1, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
+
+checkpoint_config = dict(interval=1)
+
+log_config = dict(
+    interval=50,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='TensorboardLoggerHook')
+        # dict(type='PaviLoggerHook') # for internal services
+    ])
 
 # optimizer settings
 optimizer = dict(
     type='Adam',
-    lr=5e-4,
+    lr=1e-3,
 )
 optimizer_config = dict(grad_clip=None)
 # learning policy
@@ -31,9 +41,10 @@ channel_cfg = dict(
     ])
 
 # model settings
+load_from = 'best_PCK_epoch_60.pth'
 model = dict(
     type='TopDown3D',
-    pretrained='checkpoint/hrnet_w32_h36m_256x256-d3206675_20210621.pth',
+    pretrained=None,
     backbone=dict(
         type='HRNet',
         in_channels=3,
@@ -62,22 +73,25 @@ model = dict(
                 block='BASIC',
                 num_blocks=(4, 4, 4, 4),
                 num_channels=(32, 64, 128, 256),
-                multiscale_output=True))),
+                multiscale_output=True)),
+    ),
     keypoint_head=dict(
         type='TopdownHeatmapSimpleHead',
         in_channels=32,
         out_channels=channel_cfg['num_output_channels'],
         num_deconv_layers=0,
         extra=dict(final_conv_kernel=1, ),
-        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=10)),
+        loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=0)),
+    fix_keypoint_head=True,
     keypoint3d_head=dict(
-        type='Topdown3DHead',
+        type='Topdown3DLateFuseHead',
         in_channels=32,
-        posemb_dim=[32, 64],
-        mlp_dim=[128, 256],
-        final_dim=[512, 1024, 1024],
+        posemb_dim=[1024, 1024],
+        imgfeat_dim=[512, 512, 256],
+        final_dim=[1024, 1024],
         extra=dict(
-            root_branch_dim=[256, 64],
+            global_feat_size=[8, 8],
+            global_feat_dim=256,
             pose_branch_dim=[512, 256]
         ),
         loss_keypoint=dict(type='L1Loss', use_target_weight=True)
@@ -88,7 +102,6 @@ model = dict(
         heatmap_size=[64, 64],
         flip_test=False,
         post_process='default',
-        restore_global_position=True,
         shift_heatmap=True,
         modulate_kernel=11))
 
@@ -137,6 +150,7 @@ joint_2d_normalize_param = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownRandomFlip', flip_prob=0.5),
     dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
@@ -157,13 +171,20 @@ train_pipeline = [
         mean=joint_3d_normalize_param['mean'],
         std=joint_3d_normalize_param['std']),
     dict(
+        type='Joint3DFlip',
+        item=['target_3d'],
+        flip_cfg=[
+            dict(center_mode='static', center_x=0.)
+        ],
+        visible_item=['target_weight']),
+    dict(
         type='Collect',
         keys=['img', 'target_3d', 'target', 'target_weight'],
         meta_keys=[
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
             'bbox', 'ann_info', 'image_width', 'image_height',
-            'center', 'scale', 'image_file'
+            'center', 'scale', 'image_file', 'input_2d'
         ])
 ]
 
@@ -173,6 +194,10 @@ val_pipeline = [
     dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
     dict(type='TopDownAffine'),
     dict(type='ToTensor'),
+    dict(
+        type='NormalizeTensor',
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]),
     dict(
         type='GetRootCenteredPosewRoot',
         item='target_3d',
@@ -185,6 +210,22 @@ val_pipeline = [
         mean=joint_3d_normalize_param['mean'],
         std=joint_3d_normalize_param['std']),
     dict(
+        type='Collect',
+        keys=['img'],
+        meta_keys=[
+            'target_image_path', 'flip_pairs', 'root_position',
+            'root_position_index', 'target_3d_mean', 'target_3d_std',
+            'bbox', 'ann_info', 'image_width', 'image_height',
+            'center', 'scale', 'image_file', 'input_2d'
+        ])
+]
+test_pipeline = [
+    dict(type='LoadImageFromFile'),
+    dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    dict(type='TopDownAffine'),
+    dict(type='ToTensor'),
+    dict(
         type='NormalizeTensor',
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]),
@@ -192,36 +233,35 @@ val_pipeline = [
         type='Collect',
         keys=['img'],
         meta_keys=[
-            'target_image_path', 'flip_pairs', 'root_position',
-            'root_position_index', 'target_3d_mean', 'target_3d_std',
-            'bbox', 'ann_info', 'image_width', 'image_height',
-            'center', 'scale', 'image_file'
+            'image_file', 'center', 'scale', 'rotation', 'bbox_score',
+            'flip_pairs', 'bbox', 'image_width', 'image_height',
+            'ann_info', 'root_position_index', 'target_3d_mean', 
+            'target_3d_std'
         ])
 ]
-test_pipeline = val_pipeline
 
 data = dict(
-    samples_per_gpu=32,
-    workers_per_gpu=4,
+    samples_per_gpu=64,
+    workers_per_gpu=16,
     val_dataloader=dict(samples_per_gpu=24),
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_train.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=test_pipeline,

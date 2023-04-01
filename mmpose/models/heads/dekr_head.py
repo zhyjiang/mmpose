@@ -209,10 +209,15 @@ class DEKRHead(DeconvHead):
 
         for idx in range(len(outputs)):
             pred_heatmap, pred_offset = outputs[idx]
-            heatmap_weight = masks[idx].view(masks[idx].size(0),
-                                             masks[idx].size(1), -1)
-            losses['loss_hms'] = losses.get('loss_hms', 0) + self.loss(
-                pred_heatmap, heatmaps[idx], heatmap_weight)
+            if masks is not None:
+                heatmap_weight = masks[idx].view(masks[idx].size(0),
+                                                masks[idx].size(1), -1)
+                losses['loss_hms'] = losses.get('loss_hms', 0) + self.loss(
+                    pred_heatmap, heatmaps[idx], heatmap_weight)
+            else:
+                heatmap_weight = torch.ones((pred_heatmap.shape[0], pred_heatmap.shape[1], 1)).cuda()
+                losses['loss_hms'] = losses.get('loss_hms', 0) + self.loss(
+                    pred_heatmap, heatmaps[idx], heatmap_weight)
             losses['loss_ofs'] = losses.get('loss_ofs', 0) + self.offset_loss(
                 pred_offset, offsets[idx], offset_weights[idx])
 

@@ -119,7 +119,7 @@ class TopDown3D(BasePose):
 
     @auto_fp16(apply_to=('img', ))
     def forward(self,
-                img,
+                img=None,
                 target=None,
                 target_3d=None,
                 target_weight=None,
@@ -187,16 +187,18 @@ class TopDown3D(BasePose):
                 output[0] = output[0].detach()
                 output[3] = output[3].detach()
                 pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas, key2d)
+                # pose3d = self.keypoint3d_head(None, None, img_metas, None)
                 # pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
             else:
                 pose3d = self.keypoint3d_head(output, heatmap, img_metas, key2d)
+                # pose3d = self.keypoint3d_head(None, None, img_metas, None)
 
         # if return loss
         losses = dict()
         if self.with_keypoint:
-            keypoint_losses = self.keypoint_head.get_loss(
-                heatmap, target, target_weight)
-            losses.update(keypoint_losses)
+            # keypoint_losses = self.keypoint_head.get_loss(
+            #     heatmap, target, target_weight)
+            # losses.update(keypoint_losses)
             keypoint3d_losses = self.keypoint3d_head.get_loss(
                 pose3d, target_3d, target_weight)
             losses.update(keypoint3d_losses)

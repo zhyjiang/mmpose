@@ -14,8 +14,26 @@ from ..builder import HEADS
 from .topdown_heatmap_base_head import TopdownHeatmapBaseHead
 
 
+class RLModule(nn.Module):
+    def __init__(self, dim, dropout=0.2):
+        super().__init__()
+        self.dim = dim
+        self.layer1 = nn.Linear(dim, dim)
+        self.layer2 = nn.Linear(dim, dim)
+        self.dropout = nn.Dropout(dropout)
+        self.bn1 = nn.BatchNorm1d(dim)
+        self.bn2 = nn.BatchNorm1d(dim)
+        self.relu = nn.ReLU()
+    
+    def forward(self, x):
+        res = x
+        x = self.dropout(self.relu(self.bn1(self.layer1(x))))
+        x = self.dropout(self.relu(self.bn2(self.layer2(x))))
+        return res + x
+
+
 @HEADS.register_module()
-class Topdown3D2BranchHead(nn.Module):
+class Topdown3DLateFuseHead(nn.Module):
     """Top-down heatmap simple head. paper ref: Bin Xiao et al. ``Simple
     Baselines for Human Pose Estimation and Tracking``.
 
@@ -50,8 +68,8 @@ class Topdown3D2BranchHead(nn.Module):
     def __init__(self,
                  in_channels,
                  num_keypoints=17,
-                 posemb_dim=[64],
-                 mlp_dim=[128, 256],
+                 posemb_dim=[64, 256],
+                 imgfeat_dim=[512, 256],
                  final_dim=[1024, 512],
                  extra=None,
                  loss_keypoint=None,
@@ -64,75 +82,88 @@ class Topdown3D2BranchHead(nn.Module):
 
         self.train_cfg = {} if train_cfg is None else train_cfg
         self.test_cfg = {} if test_cfg is None else test_cfg
-        
+
         self.num_keypoints = num_keypoints
         self.posemb_dim = posemb_dim
-        self.mlp_dim = mlp_dim
+        self.imgfeat_dim = imgfeat_dim
         self.final_dim = final_dim
         self.extra = extra
-        
+
         posemb_layers = []
-        for lid in range(len(self.posemb_dim)):
+        for lid, _ in enumerate(self.posemb_dim):
             if lid == 0:
-                posemb_layers.append(nn.Conv2d(1, self.posemb_dim[lid], kernel_size=(1, 6)))
+                posemb_layers.append(
+                    nn.Linear(2 * self.num_keypoints, self.posemb_dim[lid]))
+                posemb_layers.append(nn.BatchNorm1d(
+                self.posemb_dim[lid], momentum=0.1))
+                posemb_layers.append(nn.ReLU())
+                posemb_layers.append(nn.Dropout(0.2))
             else:
-                posemb_layers.append(nn.Conv2d(self.posemb_dim[lid-1], self.posemb_dim[lid], kernel_size=(1, 1)))
-            posemb_layers.append(nn.BatchNorm2d(self.posemb_dim[lid], momentum=0.1))
+                posemb_layers.append(RLModule(self.posemb_dim[lid]))
         if len(posemb_layers) > 1:
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
             self.posemb_layers = posemb_layers[0]
-                
-        mlp_layers = []
-        for lid in range(len(self.mlp_dim)):
+
+        imgfeat_layers = []
+        for lid, _ in enumerate(self.imgfeat_dim):
             if lid == 0:
-                mlp_layers.append(nn.Conv1d(in_channels=in_channels + self.posemb_dim[-1], 
-                                            out_channels=self.mlp_dim[lid],
-                                            kernel_size=1))
+                imgfeat_layers.append(
+                    nn.Linear(in_channels * self.num_keypoints, 
+                              self.imgfeat_dim[lid]))
             else:
-                mlp_layers.append(nn.Conv1d(in_channels=self.mlp_dim[lid-1], 
-                                            out_channels=self.mlp_dim[lid],
-                                            kernel_size=1))
-            mlp_layers.append(nn.BatchNorm1d(self.mlp_dim[lid], momentum=0.1))
-        if len(mlp_layers) > 1:
-            self.mlp_layers = nn.Sequential(*mlp_layers)
+                imgfeat_layers.append(
+                    nn.Linear(self.imgfeat_dim[lid-1], self.imgfeat_dim[lid]))
+            imgfeat_layers.append(nn.BatchNorm1d(
+                self.imgfeat_dim[lid], momentum=0.1))
+            imgfeat_layers.append(nn.ReLU())
+            # imgfeat_layers.append(nn.Dropout(0.2))
+        if len(imgfeat_layers) > 1:
+            self.imgfeat_layers = nn.Sequential(*imgfeat_layers)
         else:
-            self.mlp_layers = mlp_layers[0]
-                
-        self.merge_layer = nn.Conv2d(in_channels=self.mlp_dim[-1],
-                                     out_channels=self.mlp_dim[-1],
-                                     kernel_size=(self.num_keypoints, 1))
-        
+            self.imgfeat_layers = imgfeat_layers[0]
+
         final_layers = []
-        for lid in range(len(self.final_dim)):
+        for lid, _ in enumerate(self.final_dim):
             if lid == 0:
-                final_layers.append(nn.Linear(self.mlp_dim[-1], self.final_dim[lid]))
+                # final_layers.append(
+                #     nn.Linear(self.imgfeat_dim[-1] + self.posemb_dim[-1], 
+                #               self.final_dim[lid]))
+                final_layers.append(RLModule(self.final_dim[lid]))
             else:
-                final_layers.append(nn.Linear(self.final_dim[lid-1], self.final_dim[lid]))
-            final_layers.append(nn.BatchNorm1d(self.final_dim[lid], momentum=0.1))
-            
+                final_layers.append(RLModule(self.final_dim[lid]))
+            final_layers.append(nn.BatchNorm1d(
+                self.final_dim[lid], momentum=0.1))
+            final_layers.append(nn.ReLU())
+
+        final_layers.append(nn.Linear(self.final_dim[-1],
+                                      self.num_keypoints * 3))
         if len(final_layers) > 1:
             self.final_layers = nn.Sequential(*final_layers)
         else:
             self.final_layers = final_layers[0]
-        
-        self.pose_branch = None
-        pose_branch = []
-        for lid in range(len(extra['pose_branch_dim'])):
-            if lid == 0:
-                pose_branch.append(nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
-            else:
-                pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1], 
-                                                extra['pose_branch_dim'][lid]))
-            pose_branch.append(nn.BatchNorm1d(self.extra['pose_branch_dim'][lid], momentum=0.1))
-        pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1], (self.num_keypoints - 1) * 3))
-        self.pose_branch = nn.Sequential(*pose_branch)
-        
+
+        # self.pose_branch = None
+        # pose_branch = []
+        # for lid in range(len(extra['pose_branch_dim'])):
+        #     if lid == 0:
+        #         pose_branch.append(
+        #             nn.Linear(self.final_dim[-1], extra['pose_branch_dim'][lid]))
+        #     else:
+        #         pose_branch.append(nn.Linear(extra['pose_branch_dim'][lid - 1],
+        #                                      extra['pose_branch_dim'][lid]))
+        #     pose_branch.append(nn.BatchNorm1d(
+        #         self.extra['pose_branch_dim'][lid], momentum=0.1))
+        # pose_branch.append(nn.Linear(extra['pose_branch_dim'][-1],
+        #                              (self.num_keypoints - 1) * 3))
+        # self.pose_branch = nn.Sequential(*pose_branch)
+
         self.avg_pooling = nn.AvgPool2d(extra['global_feat_size'])
-        self.root_branch = nn.Sequential(
-            nn.Linear(extra['global_feat_dim'] + self.posemb_dim[-1], extra['global_feat_dim']),
-            nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
-            nn.Linear(extra['global_feat_dim'], 3))
+        # self.root_branch = nn.Sequential(
+        #     nn.Linear(extra['global_feat_dim'] +
+        #               self.posemb_dim[-1], extra['global_feat_dim']),
+        #     nn.BatchNorm1d(extra['global_feat_dim'], momentum=0.1),
+        #     nn.Linear(extra['global_feat_dim'], 3))
 
     def get_loss(self, output, target, target_weight):
         """Calculate top-down keypoint loss.
@@ -180,43 +211,36 @@ class Topdown3D2BranchHead(nn.Module):
 
     def forward(self, x, heatmap, img_metas, key2d):
         """Forward function."""
-        global_feat = x[3]
+        # global_feat = x[3]
         x = x[0]
         root_idx = img_metas[0].get('root_position_index', None)
-        bbox = self.get_bbox(img_metas)
-        _, keyIdx = self.get_keypoint(heatmap)
-        keypoint = torch.FloatTensor(key2d[:, :, :2]).cuda()
+        # bbox = self.get_bbox(img_metas)
+        keypoint, keyIdx = self.get_keypoint(heatmap, img_metas)
+        # keypoint = torch.FloatTensor(key2d[:, :, :2]).cuda()
         h = img_metas[0]['image_height']
         w = img_metas[0]['image_width']
         keypoint = keypoint / w * 2
         keypoint[:, :, 0] -= 1
         keypoint[:, :, 1] -= h/w
-        
-        posemb = torch.cat([keypoint, bbox], dim=2)
-        posemb = posemb[:, None, :, :]
-        posemb = self.posemb_layers(posemb)
-        
-        featemb = torch.zeros((heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
-        for i in range(heatmap.shape[0]):
-            for j in range(heatmap.shape[1]):
-                featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
-        
-        posemb = posemb.squeeze(dim=-1).permute(0, 2, 1)
-        keyemb = torch.cat([posemb, featemb], dim=2)
-        # keyemb = posemb
-        keyemb = keyemb.permute(0, 2, 1)
-        keyemb = self.mlp_layers(keyemb)
-        keyemb = keyemb[:, :, :, None]
-        keyemb = self.merge_layer(keyemb)
-        keyemb = torch.flatten(keyemb, start_dim=1)
-        key3d = self.final_layers(keyemb)
-        pose3d = self.pose_branch(key3d)
-        global_feat = torch.flatten(self.avg_pooling(global_feat), start_dim=1)
-        global_feat = torch.cat([posemb[:, root_idx, :], global_feat], dim=1)
-        # root3d = self.root_branch(global_feat)
-        root3d = torch.zeros_like(self.root_branch(global_feat)).float().cuda()
-        key3d = torch.cat([root3d, pose3d], dim=1)
-        key3d = key3d.view(-1, self.num_keypoints, 3)
+        keypoint = keypoint.view(keypoint.shape[0], -1)
+
+        # posemb = torch.cat([keypoint, bbox], dim=2)
+        # posemb = posemb[:, None, :, :]
+        # posemb = self.posemb_layers(posemb)
+
+        # featemb = torch.zeros(
+        #     (heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
+        # for i in range(heatmap.shape[0]):
+        #     for j in range(heatmap.shape[1]):
+        #         featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
+
+        posemb = self.posemb_layers(keypoint)
+        # featemb = featemb.view(featemb.shape[0], -1)
+        # featemb = self.imgfeat_layers(featemb)
+        # key3d = self.final_layers(torch.concat([posemb, featemb], dim=-1))
+        key3d = self.final_layers(posemb)
+        key3d = key3d.view(key3d.shape[0], self.num_keypoints, 3)
+        key3d[:, root_idx, :] *= 0
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
@@ -243,9 +267,9 @@ class Topdown3D2BranchHead(nn.Module):
                 - root_index (torch.ndarray[1,]): Optional, original index of
                     the root joint before root-centering.
         """
-        
+
         accuracy = dict()
-        
+
         N = output.shape[0]
         output_ = output.detach().cpu().numpy()
         target_ = target.detach().cpu().numpy()
@@ -293,9 +317,10 @@ class Topdown3D2BranchHead(nn.Module):
         p_mpjpe = np.mean(
             np.linalg.norm(
                 (transformed_output - target_) * target_weight_, axis=-1))
-        
-        root_mpjpe = np.mean(np.linalg.norm(output_root - target_root, axis=-1))
-        
+
+        root_mpjpe = np.mean(np.linalg.norm(
+            output_root - target_root, axis=-1))
+
         accuracy['mpjpe'] = output.new_tensor(mpjpe)
         accuracy['root mpjpe'] = output.new_tensor(root_mpjpe)
         accuracy['p_mpjpe'] = output.new_tensor(p_mpjpe)
@@ -307,23 +332,27 @@ class Topdown3D2BranchHead(nn.Module):
         for i in range(len(img_metas)):
             bbox[i] = img_metas[i]['bbox']
             bbox[i, 0::2] /= img_metas[i]['image_width']
-            bbox[i, 1::2] /= img_metas[i]['image_height'] 
+            bbox[i, 1::2] /= img_metas[i]['image_height']
             bbox[i, :2] = bbox[i, :2] * 2 - 1
         bbox = torch.FloatTensor(bbox).cuda()[:, None, :]
         bbox = bbox.repeat(1, self.num_keypoints, 1)
         return bbox
 
-    def get_keypoint(self, heatmap):
+    def get_keypoint(self, heatmap, img_metas):
         heatmap = torch.flatten(heatmap, start_dim=2)
-        keypoint = torch.zeros((heatmap.shape[0], heatmap.shape[1], 2)).cuda().long()
+        keypoint = torch.zeros(
+            (len(img_metas), self.num_keypoints, 2)).cuda().long()
         key_loc = torch.argmax(heatmap, dim=2).long()
         keypoint[:, :, 0] = key_loc % self.train_cfg['heatmap_size'][1]
         keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
-        
+
         keyIdx = keypoint.cpu().numpy()
         keypoint = keypoint.float()
-        keypoint[:, :, 0] = keypoint[:, :, 0] / self.train_cfg['heatmap_size'][1] * 2 - 1
-        keypoint[:, :, 1] = keypoint[:, :, 1] / self.train_cfg['heatmap_size'][0] * 2 - 1
+        for i, _ in enumerate(img_metas):
+            keypoint[i, :, 0] = torch.FloatTensor(img_metas[i]['input_2d'][0, :, 0]).cuda()
+            keypoint[i, :, 1] = torch.FloatTensor(img_metas[i]['input_2d'][0, :, 1]).cuda()
+        # keypoint[:, :, 0] = keypoint[:, :, 0] / self.train_cfg['heatmap_size'][1] * 2 - 1
+        # keypoint[:, :, 1] = keypoint[:, :, 1] / self.train_cfg['heatmap_size'][0] * 2 - 1
         return keypoint, keyIdx
 
     def inference_model(self, x, heatmap, img_metas, key2d):
@@ -340,7 +369,7 @@ class Topdown3D2BranchHead(nn.Module):
         output = self.forward(x, heatmap, img_metas, key2d)
         output_key3d = output.cpu().numpy()
         return output_key3d
-    
+
     def decode(self, img_metas, output):
         """Decode the keypoints from output regression.
 
@@ -367,21 +396,24 @@ class Topdown3D2BranchHead(nn.Module):
             target_mean = np.stack([m['target_3d_mean'] for m in img_metas])
             target_std = np.stack([m['target_3d_std'] for m in img_metas])
             output = self._denormalize_joints(output, target_mean, target_std)
-        
+
         if self.test_cfg.get('restore_global_position', False):
             output = output[:, 1:, :]
             root_pos = np.stack([m['root_position'] for m in img_metas])
             root_idx = img_metas[0].get('root_position_index', None)
             output = self._restore_global_position(output, root_pos, root_idx)
         else:
-            output = output + output[:, img_metas[0]['root_position_index']:img_metas[0]['root_position_index'] + 1, :]
+            output = output + \
+                output[:, img_metas[0]['root_position_index']
+                    :img_metas[0]['root_position_index'] + 1, :]
             output[:, img_metas[0]['root_position_index'], :] /= 2.0
-            
-        target_image_paths = [m.get('target_image_path', None) for m in img_metas]
+
+        target_image_paths = [m.get('target_image_path', None)
+                              for m in img_metas]
         result = {'preds': output, 'target_image_paths': target_image_paths}
 
         return result
-    
+
     @staticmethod
     def _denormalize_joints(x, mean, std):
         """Denormalize joint coordinates with given statistics mean and std.
@@ -411,7 +443,7 @@ class Topdown3D2BranchHead(nn.Module):
         if root_idx is not None:
             x = np.insert(x, root_idx, root_pos.squeeze(1), axis=1)
         return x
-    
+
     @staticmethod
     def _restore_root_target_weight(target_weight, root_weight, root_idx=None):
         """Restore the target weight of the root joint after the restoration of
@@ -436,20 +468,20 @@ class Topdown3D2BranchHead(nn.Module):
         for _, m in self.posemb_layers.named_modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001)
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm1d):
                 constant_init(m, 1)
-        for m in self.merge_layer.modules():
-            if isinstance(m, nn.Conv2d):
+        # for m in self.merge_layer.modules():
+        #     if isinstance(m, nn.Conv2d):
+        #         normal_init(m, std=0.001, bias=0)
+        #     elif isinstance(m, nn.BatchNorm2d):
+        #         constant_init(m, 1)
+        for m in self.imgfeat_layers.modules():
+            if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001, bias=0)
-            elif isinstance(m, nn.BatchNorm2d):
-                constant_init(m, 1)
-        for m in self.mlp_layers.modules():
-            if isinstance(m, nn.Conv1d):
-                normal_init(m, std=0.001, bias=0)
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm1d):
                 constant_init(m, 1)
         for m in self.final_layers.modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001, bias=0)
-            elif isinstance(m, nn.BatchNorm2d):
+            elif isinstance(m, nn.BatchNorm1d):
                 constant_init(m, 1)

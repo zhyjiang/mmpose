@@ -241,27 +241,27 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=44,
-    workers_per_gpu=12,
+    samples_per_gpu=56,
+    workers_per_gpu=14,
     val_dataloader=dict(samples_per_gpu=24),
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_train.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=test_pipeline,
