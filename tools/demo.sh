@@ -1,7 +1,7 @@
 echo "start testing $1..."
 python demo/ours_demo.py \
     configs/body/3d_kpt_sview_rgb_img/pose_lift/h36m/$1.py \
-    best_PCK_epoch_60.pth \
+    work_dirs/$1/latest.pth \
     --json-file tests/data/h36m/h36m_sampled_coco.json \
     --img-root tests/data/h36m \
     --camera-param-file tests/data/h36m/cameras.pkl \

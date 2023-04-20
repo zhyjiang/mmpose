@@ -36,6 +36,7 @@ class TopDown3D(BasePose):
 
     def __init__(self,
                  backbone,
+                 img_inference=True,
                  neck=None,
                  keypoint_head=None,
                  keypoint3d_head=None,
@@ -55,6 +56,7 @@ class TopDown3D(BasePose):
         self.test_cfg = test_cfg
         self.inference3d = inference3d
         self.fix_keypoint_head = fix_keypoint_head
+        self.img_inference = img_inference
 
         if neck is not None:
             self.neck = builder.build_neck(neck)
@@ -174,19 +176,27 @@ class TopDown3D(BasePose):
 
     def forward_train(self, img, target, target_3d, target_weight, img_metas, **kwargs):
         """Defines the computation performed at every call when training."""
-        output = self.backbone(img)
+        output = None
+        if self.img_inference:
+            output = self.backbone(img)
         if self.with_neck:
             output = self.neck(output)
         if self.with_keypoint:
-            heatmap = self.keypoint_head(output)
-            batch_size, _, img_height, img_width = img.shape
-            keypoint_result = self.keypoint_head.decode(
-                img_metas, heatmap.detach().cpu().numpy(), img_size=[img_width, img_height])
-            key2d = keypoint_result['preds']
+            heatmap = None
+            key2d = None
+            if self.img_inference:
+                heatmap = self.keypoint_head(output)
+                batch_size, _, img_height, img_width = img.shape
+                keypoint_result = self.keypoint_head.decode(
+                    img_metas, heatmap.detach().cpu().numpy(), img_size=[img_width, img_height])
+                key2d = keypoint_result['preds']
             if self.fix_keypoint_head:
-                output[0] = output[0].detach()
-                output[3] = output[3].detach()
-                pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas, key2d)
+                if self.img_inference:
+                    output[0] = output[0].detach()
+                    output[3] = output[3].detach()
+                    pose3d = self.keypoint3d_head(output, heatmap.detach(), img_metas, key2d)
+                else:
+                    pose3d = self.keypoint3d_head(None, None, img_metas, None)
                 # pose3d = self.keypoint3d_head(None, None, img_metas, None)
                 # pose3d = self.keypoint3d_head(output[0], heatmap, img_metas)
             else:
@@ -196,45 +206,55 @@ class TopDown3D(BasePose):
         # if return loss
         losses = dict()
         if self.with_keypoint:
-            # keypoint_losses = self.keypoint_head.get_loss(
-            #     heatmap, target, target_weight)
-            # losses.update(keypoint_losses)
+            if self.img_inference:
+                keypoint_losses = self.keypoint_head.get_loss(
+                    heatmap, target, target_weight)
+                losses.update(keypoint_losses)
+                keypoint_accuracy = self.keypoint_head.get_accuracy(
+                    heatmap, target, target_weight)
+                losses.update(keypoint_accuracy)
             keypoint3d_losses = self.keypoint3d_head.get_loss(
                 pose3d, target_3d, target_weight)
             losses.update(keypoint3d_losses)
-            keypoint_accuracy = self.keypoint_head.get_accuracy(
-                heatmap, target, target_weight)
-            losses.update(keypoint_accuracy)
             keypoint_3d_accuracy = self.keypoint3d_head.get_accuracy(
                 pose3d, target_3d, target_weight, img_metas
             )
+            # print(keypoint_3d_accuracy)
             losses.update(keypoint_3d_accuracy)
 
         return losses
 
     def forward_test(self, img, img_metas, return_heatmap=False, **kwargs):
         """Defines the computation performed at every call when testing."""
-        assert img.size(0) == len(img_metas)
-        batch_size, _, img_height, img_width = img.shape
+        features = None
+        if self.img_inference:
+            assert img.size(0) == len(img_metas)
+            batch_size, _, img_height, img_width = img.shape
+            features = self.backbone(img)
 
         result = {}
 
-        features = self.backbone(img)
         if self.with_neck:
             features = self.neck(features)
         if self.with_keypoint:
-            output_heatmap = self.keypoint_head(features)
-            keypoint_result = self.keypoint_head.decode(
-                img_metas, output_heatmap.cpu().numpy(), img_size=[img_width, img_height])
-            key2d = keypoint_result['preds']
+            output_heatmap = None
+            key2d = None
+            if self.img_inference:
+                output_heatmap = self.keypoint_head(features)
+                keypoint_result = self.keypoint_head.decode(
+                    img_metas, output_heatmap.cpu().numpy(), img_size=[img_width, img_height])
+                key2d = keypoint_result['preds']
             output_pose3d = self.keypoint3d_head.inference_model(
                 features, output_heatmap, img_metas, key2d)
-            output_heatmap = output_heatmap.cpu().numpy()
+            if self.img_inference:
+                output_heatmap = output_heatmap.cpu().numpy()
 
         if self.with_keypoint:
-            result.update(keypoint_result)
+            if self.img_inference:
+                result.update(keypoint_result)
             if self.inference3d:
-                result['preds2d'] = result['preds']
+                if self.img_inference:
+                    result['preds2d'] = result['preds']
                 keypoint3d_result = self.keypoint3d_head.decode(
                     img_metas, output_pose3d
                 )

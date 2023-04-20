@@ -2,9 +2,9 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/h36m.py'
 ]
-evaluation = dict(interval=2, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
+evaluation = dict(interval=4, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
 
-checkpoint_config = dict(interval=2)
+checkpoint_config = dict(interval=10)
 
 log_config = dict(
     interval=100,
@@ -44,7 +44,7 @@ channel_cfg = dict(
 load_from = 'work_dirs/hrnet_end2end_late_fuse_keypoint_pretraining/best_MPJPE_epoch_156.pth'
 model = dict(
     type='TopDown3D',
-    # img_inference=False,
+    img_inference=False,
     pretrained=None,
     backbone=dict(
         type='HRNet',
@@ -150,17 +150,17 @@ joint_2d_normalize_param = dict(
          [131.79990652, 89.86721124]])
 
 train_pipeline = [
-    dict(type='LoadImageFromFile'),
-    dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    # dict(type='LoadImageFromFile'),
+    # dict(type='TopDownGetBboxCenterScale', padding=1.25),
     # dict(type='TopDownRandomFlip', flip_prob=0.5),
-    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
-    dict(type='TopDownAffine'),
-    dict(type='ToTensor'),
-    dict(
-        type='NormalizeTensor',
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]),
-    dict(type='TopDownGenerateTarget', sigma=2),
+    # dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    # dict(type='TopDownAffine'),
+    # dict(type='ToTensor'),
+    # dict(
+    #     type='NormalizeTensor',
+    #     mean=[0.485, 0.456, 0.406],
+    #     std=[0.229, 0.224, 0.225]),
+    # dict(type='TopDownGenerateTarget', sigma=2),
     dict(
         type='GetRootCenteredPose',
         item='target_3d',
@@ -181,7 +181,7 @@ train_pipeline = [
     #     visible_item=['target_weight']),
     dict(
         type='Collect',
-        keys=['img', 'target_3d', 'target', 'target_weight'],
+        keys=['target_3d'],
         meta_keys=[
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
@@ -191,15 +191,15 @@ train_pipeline = [
 ]
 
 val_pipeline = [
-    dict(type='LoadImageFromFile'),
-    dict(type='TopDownGetBboxCenterScale', padding=1.25),
-    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
-    dict(type='TopDownAffine'),
-    dict(type='ToTensor'),
-    dict(
-        type='NormalizeTensor',
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]),
+    # dict(type='LoadImageFromFile'),
+    # dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    # dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    # dict(type='TopDownAffine'),
+    # dict(type='ToTensor'),
+    # dict(
+    #     type='NormalizeTensor',
+    #     mean=[0.485, 0.456, 0.406],
+    #     std=[0.229, 0.224, 0.225]),
     dict(
         type='GetRootCenteredPose',
         item='target_3d',
@@ -213,7 +213,7 @@ val_pipeline = [
         std=joint_3d_normalize_param['std']),
     dict(
         type='Collect',
-        keys=['img'],
+        keys=['target_3d'],
         meta_keys=[
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
@@ -243,8 +243,8 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=64,
-    workers_per_gpu=16,
+    samples_per_gpu=512,
+    workers_per_gpu=32,
     val_dataloader=dict(samples_per_gpu=24),
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(

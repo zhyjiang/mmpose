@@ -2,6 +2,7 @@
 import math
 from typing import Sequence
 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import build_conv_layer, build_norm_layer
@@ -363,3 +364,16 @@ class PatchMerging(BaseModule):
         x = self.norm(x) if self.norm else x
         x = self.reduction(x)
         return x, output_size
+
+def positional_encoding(keypoints, d_model):
+    # Create a matrix of shape (max_len, d_model) filled with zeros
+    pos_enc = torch.zeros((keypoints.shape[0], keypoints.shape[1], keypoints.shape[2], d_model))
+    
+    # Compute the angles for the positional encoding
+    pos = keypoints.unsqueeze(-1)
+    div = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+    
+    pos_enc[:, :, :, 0::2] = torch.sin(pos * div)
+    pos_enc[:, :, :, 1::2] = torch.cos(pos * div)
+    
+    return pos_enc

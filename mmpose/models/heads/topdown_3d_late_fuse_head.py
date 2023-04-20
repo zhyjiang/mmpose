@@ -94,8 +94,7 @@ class Topdown3DLateFuseHead(nn.Module):
             if lid == 0:
                 posemb_layers.append(
                     nn.Linear(2 * self.num_keypoints, self.posemb_dim[lid]))
-                posemb_layers.append(nn.BatchNorm1d(
-                self.posemb_dim[lid], momentum=0.1))
+                posemb_layers.append(nn.BatchNorm1d(self.posemb_dim[lid], momentum=0.1))
                 posemb_layers.append(nn.ReLU())
                 posemb_layers.append(nn.Dropout(0.2))
             else:
@@ -182,7 +181,10 @@ class Topdown3DLateFuseHead(nn.Module):
         losses = dict()
 
         assert not isinstance(self.loss, nn.Sequential)
-        assert target.dim() == 3 and target_weight.dim() == 3
+        if target_weight is not None:
+            assert target.dim() == 3 and target_weight.dim() == 3
+        else:
+            target_weight = torch.ones((target.shape[0], target.shape[1], 1)).cuda()
         losses['Key3D_loss'] = self.loss(output, target, target_weight)
 
         return losses
@@ -212,11 +214,14 @@ class Topdown3DLateFuseHead(nn.Module):
     def forward(self, x, heatmap, img_metas, key2d):
         """Forward function."""
         # global_feat = x[3]
-        x = x[0]
+        if x is not None:
+            x = x[0]
+            global_feat = x[3]
         root_idx = img_metas[0].get('root_position_index', None)
         # bbox = self.get_bbox(img_metas)
         keypoint, keyIdx = self.get_keypoint(heatmap, img_metas)
-        # keypoint = torch.FloatTensor(key2d[:, :, :2]).cuda()
+        if x is not None:
+            keypoint = torch.FloatTensor(key2d[:, :, :2]).cuda()
         h = img_metas[0]['image_height']
         w = img_metas[0]['image_width']
         keypoint = keypoint / w * 2
@@ -227,20 +232,23 @@ class Topdown3DLateFuseHead(nn.Module):
         # posemb = torch.cat([keypoint, bbox], dim=2)
         # posemb = posemb[:, None, :, :]
         # posemb = self.posemb_layers(posemb)
-
-        # featemb = torch.zeros(
-        #     (heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
-        # for i in range(heatmap.shape[0]):
-        #     for j in range(heatmap.shape[1]):
-        #         featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
-
         posemb = self.posemb_layers(keypoint)
-        # featemb = featemb.view(featemb.shape[0], -1)
-        # featemb = self.imgfeat_layers(featemb)
-        # key3d = self.final_layers(torch.concat([posemb, featemb], dim=-1))
-        key3d = self.final_layers(posemb)
+
+        if x is not None:
+            featemb = torch.zeros(
+                (heatmap.shape[0], heatmap.shape[1], self.in_channels)).cuda()
+            for i in range(heatmap.shape[0]):
+                for j in range(heatmap.shape[1]):
+                    featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
+            featemb = featemb.view(featemb.shape[0], -1)
+            featemb = self.imgfeat_layers(featemb)
+        else:
+            featemb = torch.zeros((posemb.shape[0], self.imgfeat_dim[-1])).cuda()
+        
+        key3d = self.final_layers(torch.concat([posemb, featemb], dim=-1))
+        # key3d = self.final_layers(posemb)
         key3d = key3d.view(key3d.shape[0], self.num_keypoints, 3)
-        key3d[:, root_idx, :] *= 0
+        # key3d[:, root_idx, :] *= 0
         return key3d
 
     def get_accuracy(self, output, target, target_weight, metas):
@@ -305,8 +313,8 @@ class Topdown3DLateFuseHead(nn.Module):
                 root_weight = metas[0].get('root_joint_weight', 1.0)
                 target_weight_ = self._restore_root_target_weight(
                     target_weight_, root_weight, root_idx)
-
-        target_weight_ = target_weight_[:, 1:]
+            target_weight_ = target_weight_[:, 1:]
+            
         mpjpe = np.mean(
             np.linalg.norm((output_ - target_) * target_weight_, axis=-1))
 
@@ -339,14 +347,16 @@ class Topdown3DLateFuseHead(nn.Module):
         return bbox
 
     def get_keypoint(self, heatmap, img_metas):
-        heatmap = torch.flatten(heatmap, start_dim=2)
+        keyIdx = None
         keypoint = torch.zeros(
-            (len(img_metas), self.num_keypoints, 2)).cuda().long()
-        key_loc = torch.argmax(heatmap, dim=2).long()
-        keypoint[:, :, 0] = key_loc % self.train_cfg['heatmap_size'][1]
-        keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
-
-        keyIdx = keypoint.cpu().numpy()
+                (len(img_metas), self.num_keypoints, 2)).cuda().long()
+        if heatmap is not None:
+            heatmap = torch.flatten(heatmap, start_dim=2)
+            key_loc = torch.argmax(heatmap, dim=2).long()
+            keypoint[:, :, 0] = key_loc % self.train_cfg['heatmap_size'][1]
+            keypoint[:, :, 1] = key_loc // self.train_cfg['heatmap_size'][1]
+            keyIdx = keypoint.cpu().numpy()
+            
         keypoint = keypoint.float()
         for i, _ in enumerate(img_metas):
             keypoint[i, :, 0] = torch.FloatTensor(img_metas[i]['input_2d'][0, :, 0]).cuda()
@@ -477,7 +487,7 @@ class Topdown3DLateFuseHead(nn.Module):
         #         constant_init(m, 1)
         for m in self.imgfeat_layers.modules():
             if isinstance(m, nn.Linear):
-                normal_init(m, std=0.001, bias=0)
+                constant_init(m, 0)
             elif isinstance(m, nn.BatchNorm1d):
                 constant_init(m, 1)
         for m in self.final_layers.modules():
