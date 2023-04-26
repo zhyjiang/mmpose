@@ -89,45 +89,25 @@ class Topdown3DLateFuseHead(nn.Module):
         self.final_dim = final_dim
         self.extra = extra
 
+        self.pose_stem = nn.Sequential(
+            nn.Linear(2 * self.num_keypoints, self.posemb_dim[0]),
+            nn.BatchNorm1d(self.posemb_dim[0], momentum=0.1),
+            nn.ReLU(),
+        )
         posemb_layers = []
         for lid, _ in enumerate(self.posemb_dim):
-            if lid == 0:
-                posemb_layers.append(
-                    nn.Linear(2 * self.num_keypoints, self.posemb_dim[lid]))
-                posemb_layers.append(nn.BatchNorm1d(self.posemb_dim[lid], momentum=0.1))
-                posemb_layers.append(nn.ReLU())
-                posemb_layers.append(nn.Dropout(0.2))
-            else:
-                posemb_layers.append(RLModule(self.posemb_dim[lid]))
+            posemb_layers.append(RLModule(self.posemb_dim[lid]))
         if len(posemb_layers) > 1:
             self.posemb_layers = nn.Sequential(*posemb_layers)
         else:
             self.posemb_layers = posemb_layers[0]
 
-        imgfeat_layers = []
-        for lid, _ in enumerate(self.imgfeat_dim):
-            if lid == 0:
-                imgfeat_layers.append(
-                    nn.Linear(in_channels * self.num_keypoints, 
-                              self.imgfeat_dim[lid]))
-            else:
-                imgfeat_layers.append(
-                    nn.Linear(self.imgfeat_dim[lid-1], self.imgfeat_dim[lid]))
-            imgfeat_layers.append(nn.BatchNorm1d(
-                self.imgfeat_dim[lid], momentum=0.1))
-            imgfeat_layers.append(nn.ReLU())
-            # imgfeat_layers.append(nn.Dropout(0.2))
-        if len(imgfeat_layers) > 1:
-            self.imgfeat_layers = nn.Sequential(*imgfeat_layers)
-        else:
-            self.imgfeat_layers = imgfeat_layers[0]
+        self.imgfeat_linear0_0 = nn.Linear(in_channels * self.num_keypoints, self.posemb_dim[0])
+        self.imgfeat_linear0_1 = nn.Linear(self.posemb_dim[-1], self.posemb_dim[-1])
 
         final_layers = []
         for lid, _ in enumerate(self.final_dim):
             if lid == 0:
-                # final_layers.append(
-                #     nn.Linear(self.imgfeat_dim[-1] + self.posemb_dim[-1], 
-                #               self.final_dim[lid]))
                 final_layers.append(RLModule(self.final_dim[lid]))
             else:
                 final_layers.append(RLModule(self.final_dim[lid]))
@@ -232,7 +212,7 @@ class Topdown3DLateFuseHead(nn.Module):
         # posemb = torch.cat([keypoint, bbox], dim=2)
         # posemb = posemb[:, None, :, :]
         # posemb = self.posemb_layers(posemb)
-        posemb = self.posemb_layers(keypoint)
+        posemb = self.pose_stem(keypoint)
 
         if x is not None:
             featemb = torch.zeros(
@@ -241,11 +221,15 @@ class Topdown3DLateFuseHead(nn.Module):
                 for j in range(heatmap.shape[1]):
                     featemb[i, j, :] = x[i, :, keyIdx[i, j, 1], keyIdx[i, j, 0]]
             featemb = featemb.view(featemb.shape[0], -1)
-            featemb = self.imgfeat_layers(featemb)
+            featemb = self.imgfeat_linear0_0(featemb)
+            featemb = self.posemb_layers(featemb + posemb)
+            featemb = self.imgfeat_linear0_1(featemb)
+            posemb = self.posemb_layers(posemb)
         else:
-            featemb = torch.zeros((posemb.shape[0], self.imgfeat_dim[-1])).cuda()
-        
-        key3d = self.final_layers(torch.concat([posemb, featemb], dim=-1))
+            posemb = self.posemb_layers(posemb)
+            featemb = torch.zeros_like(posemb).cuda()
+            
+        key3d = self.final_layers(featemb + posemb)
         # key3d = self.final_layers(posemb)
         key3d = key3d.view(key3d.shape[0], self.num_keypoints, 3)
         # key3d[:, root_idx, :] *= 0
@@ -485,11 +469,8 @@ class Topdown3DLateFuseHead(nn.Module):
         #         normal_init(m, std=0.001, bias=0)
         #     elif isinstance(m, nn.BatchNorm2d):
         #         constant_init(m, 1)
-        for m in self.imgfeat_layers.modules():
-            if isinstance(m, nn.Linear):
-                constant_init(m, 0)
-            elif isinstance(m, nn.BatchNorm1d):
-                constant_init(m, 1)
+        constant_init(self.imgfeat_linear0_0, 0)
+        constant_init(self.imgfeat_linear0_1, 0)
         for m in self.final_layers.modules():
             if isinstance(m, nn.Linear):
                 normal_init(m, std=0.001, bias=0)

@@ -40,8 +40,7 @@ channel_cfg = dict(
     ])
 
 # model settings
-# load_from = 'best_PCK_epoch_60.pth'
-load_from = 'work_dirs/hrnet_end2end_late_fuse_keypoint_pretraining/best_MPJPE_epoch_156.pth'
+load_from = 'best_PCK_epoch_60.pth'
 model = dict(
     type='TopDown3D',
     img_inference=False,
@@ -89,7 +88,7 @@ model = dict(
         in_channels=32,
         posemb_dim=[1024, 1024],
         imgfeat_dim=[512, 512, 256],
-        final_dim=[1280, 1280],
+        final_dim=[1024, 1024],
         extra=dict(
             global_feat_size=[8, 8],
             global_feat_dim=256,
@@ -249,21 +248,21 @@ data = dict(
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_train.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=test_pipeline,
