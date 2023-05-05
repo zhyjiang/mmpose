@@ -40,7 +40,7 @@ channel_cfg = dict(
     ])
 
 # model settings
-load_from = 'best_PCK_epoch_60.pth'
+load_from = 'checkpoint/best_MPJPE_epoch_72.pth'
 model = dict(
     type='TopDown3D',
     img_inference=False,
@@ -121,13 +121,13 @@ data_cfg = dict(
 )
 
 # 3D joint normalization parameters
-# From file: '{data_root}/annotation_body3d/fps50/joint3d_rel_stats.pkl'
+# From file: '{data_root}/annotation_body3d/fps10/joint3d_rel_stats.pkl'
 joint_3d_normalize_param = dict(
     mean=[[0, 0, 0] for i in range(17)],
     std=[[1, 1, 1] if i == 0 else [1, 1, 1] for i in range(17)])
 
 # 2D joint normalization parameters
-# From file: '{data_root}/annotation_body3d/fps50/joint2d_stats.pkl'
+# From file: '{data_root}/annotation_body3d/fps10/joint2d_stats.pkl'
 joint_2d_normalize_param = dict(
     mean=[[532.08351635, 419.74137558], [531.80953144, 418.2607141],
           [530.68456967, 493.54259285], [529.36968722, 575.96448516],
@@ -221,23 +221,34 @@ val_pipeline = [
         ])
 ]
 test_pipeline = [
-    dict(type='LoadImageFromFile'),
-    dict(type='TopDownGetBboxCenterScale', padding=1.25),
-    dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
-    dict(type='TopDownAffine'),
-    dict(type='ToTensor'),
+    # dict(type='LoadImageFromFile'),
+    # dict(type='TopDownGetBboxCenterScale', padding=1.25),
+    # dict(type='TopDownGetRandomScaleRotation', rot_factor=0, scale_factor=0),
+    # dict(type='TopDownAffine'),
+    # dict(type='ToTensor'),
+    # dict(
+    #     type='NormalizeTensor',
+    #     mean=[0.485, 0.456, 0.406],
+    #     std=[0.229, 0.224, 0.225]),
     dict(
-        type='NormalizeTensor',
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]),
+        type='GetRootCenteredPose',
+        item='target_3d',
+        visible_item='target_visible',
+        root_index=0,
+        root_name='root_position'),
+    dict(
+        type='NormalizeJointCoordinate',
+        item='target_3d',
+        mean=joint_3d_normalize_param['mean'],
+        std=joint_3d_normalize_param['std']),
     dict(
         type='Collect',
-        keys=['img'],
+        keys=['target_3d'],
         meta_keys=[
-            'image_file', 'center', 'scale', 'rotation', 'bbox_score',
-            'flip_pairs', 'bbox', 'image_width', 'image_height',
-            'ann_info', 'root_position_index', 'target_3d_mean', 
-            'target_3d_std'
+            'target_image_path', 'flip_pairs', 'root_position',
+            'root_position_index', 'target_3d_mean', 'target_3d_std',
+            'bbox', 'ann_info', 'image_width', 'image_height',
+            'center', 'scale', 'image_file', 'input_2d'
         ])
 ]
 

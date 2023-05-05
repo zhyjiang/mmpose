@@ -4,7 +4,7 @@ _base_ = [
 ]
 evaluation = dict(interval=2, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
 
-checkpoint_config = dict(interval=2)
+checkpoint_config = dict(interval=1)
 
 log_config = dict(
     interval=100,
@@ -40,8 +40,8 @@ channel_cfg = dict(
     ])
 
 # model settings
-# load_from = 'best_PCK_epoch_60.pth'
-load_from = 'work_dirs/hrnet_end2end_late_fuse_keypoint_pretraining/best_MPJPE_epoch_156.pth'
+load_from = 'checkpoint/best_MPJPE_epoch_92_det.pth'
+# load_from = 'work_dirs/hrnet_end2end_late_fuse_keypoint_pretraining/best_MPJPE_epoch_156.pth'
 model = dict(
     type='TopDown3D',
     # img_inference=False,
@@ -83,13 +83,14 @@ model = dict(
         num_deconv_layers=0,
         extra=dict(final_conv_kernel=1, ),
         loss_keypoint=dict(type='JointsMSELoss', use_target_weight=True, loss_weight=0)),
-    fix_keypoint_head=True,
+    # fix_keypoint_head=True,
     keypoint3d_head=dict(
         type='Topdown3DLateFuseHead',
+        finetune_img=True,
         in_channels=32,
         posemb_dim=[1024, 1024],
         imgfeat_dim=[512, 512, 256],
-        final_dim=[1280, 1280],
+        final_dim=[1024, 1024],
         extra=dict(
             global_feat_size=[8, 8],
             global_feat_dim=256,
@@ -122,13 +123,13 @@ data_cfg = dict(
 )
 
 # 3D joint normalization parameters
-# From file: '{data_root}/annotation_body3d/fps50/joint3d_rel_stats.pkl'
+# From file: '{data_root}/annotation_body3d/fps10/joint3d_rel_stats.pkl'
 joint_3d_normalize_param = dict(
     mean=[[0, 0, 0] for i in range(17)],
     std=[[1, 1, 1] if i == 0 else [1, 1, 1] for i in range(17)])
 
 # 2D joint normalization parameters
-# From file: '{data_root}/annotation_body3d/fps50/joint2d_stats.pkl'
+# From file: '{data_root}/annotation_body3d/fps10/joint2d_stats.pkl'
 joint_2d_normalize_param = dict(
     mean=[[532.08351635, 419.74137558], [531.80953144, 418.2607141],
           [530.68456967, 493.54259285], [529.36968722, 575.96448516],
@@ -186,7 +187,7 @@ train_pipeline = [
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
             'bbox', 'ann_info', 'image_width', 'image_height',
-            'center', 'scale', 'image_file', 'input_2d'
+            'center', 'scale', 'image_file', 'input_2d', 'joints_3d'
         ])
 ]
 
@@ -218,7 +219,7 @@ val_pipeline = [
             'target_image_path', 'flip_pairs', 'root_position',
             'root_position_index', 'target_3d_mean', 'target_3d_std',
             'bbox', 'ann_info', 'image_width', 'image_height',
-            'center', 'scale', 'image_file', 'input_2d'
+            'center', 'scale', 'image_file', 'input_2d', 'joints_3d'
         ])
 ]
 test_pipeline = [
@@ -235,10 +236,10 @@ test_pipeline = [
         type='Collect',
         keys=['img'],
         meta_keys=[
-            'image_file', 'center', 'scale', 'rotation', 'bbox_score',
-            'flip_pairs', 'bbox', 'image_width', 'image_height',
-            'ann_info', 'root_position_index', 'target_3d_mean', 
-            'target_3d_std'
+            'target_image_path', 'flip_pairs', 'root_position',
+            'root_position_index', 'target_3d_mean', 'target_3d_std',
+            'bbox', 'ann_info', 'image_width', 'image_height',
+            'center', 'scale', 'image_file', 'input_2d'
         ])
 ]
 
@@ -249,21 +250,21 @@ data = dict(
     test_dataloader=dict(samples_per_gpu=48),
     train=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_train.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_train_pred.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test_pred.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
         type='Body3DSViewH36MDataset',
-        ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
+        ann_file=f'{data_root}/annotation_body3d/fps10/h36m_test_pred.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=test_pipeline,
